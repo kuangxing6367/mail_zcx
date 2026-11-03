@@ -58,7 +58,7 @@
 ```
 public/
   index.php               # 唯一入口（前端控制器）
-  admin/index.html        # WebUI 控制台（纯静态单文件）
+  zc-console/index.html   # WebUI 控制台（纯静态单文件，目录名可改为随机串隐藏）
 app/
   Core/                   # Config / Database / Request / Response / Router / Auth / Crypto / Logger
   Mail/                   # SmtpClient / MimeBuilder / Mailer
@@ -220,7 +220,7 @@ curl -X POST $BASE/api/v1/mailboxes \
 
 ## Web 控制台
 
-访问 `https://你的域名/admin/`，输入 API Key 即可进入可视化管理界面：
+访问 `https://你的域名/zc-console/`，输入 API Key 即可进入可视化管理界面：
 
 | 页面 | 功能 |
 |---|---|
@@ -232,7 +232,7 @@ curl -X POST $BASE/api/v1/mailboxes \
 | **发送日志** | 按状态/关键词筛选，单条详情含 SMTP 响应码、错误、原始请求体 |
 | **API 密钥** | 新建、轮换、限流与 IP 白名单管理 |
 
-实现上是**纯静态单文件**（`public/admin/index.html`，无框架、无 CDN 依赖），
+实现上是**纯静态单文件**（`public/zc-console/index.html`，无框架、无 CDN 依赖），
 所有数据通过 `/api/v1` 实时拉取，API Key 存在浏览器 localStorage。
 静态页面本身公开无妨 —— 没有 Key 无法调用任何接口。
 
@@ -281,6 +281,46 @@ $data = json_decode($raw, true);   // ['event'=>'success','data'=>[...]]
 7. **反代/CDN 前先验证 API 可达**：若套 Cloudflare，注意 Bot Fight Mode / 托管质询会拦截
    **服务端**调用（curl 会拿到 HTML 质询页而不是 JSON）。请对 `/api/*` 配置 WAF 跳过规则，
    或关闭 API 域的浏览器完整性检查。
+
+---
+
+## 秘密入口（可选，防扫描）
+
+仅靠 API Key 鉴权时，接口路径 `/api/v1` 和后台 `/zc-console` 仍是固定可猜的。
+生产环境可加一层**入口混淆**，让扫描器找不到门：
+
+### 1. 隐藏后台控制台
+
+后台是纯静态单文件，调用接口用绝对路径，因此**改目录名即可隐藏，无需改代码**：
+
+```bash
+# 部署时把目录改名成随机串（示例）
+mv public/zc-console public/a7f3c9e2bd
+# 之后控制台地址变为 https://你的域名/a7f3c9e2bd/
+```
+
+> 仓库默认名 `zc-console` 仅作示意；生产请换成无规律的随机串并收藏书签。
+> nginx 示例里对应的 location 也要同步改成 `location ^~ /a7f3c9e2bd/ { ... }`。
+
+### 2. 给 API 加秘密前缀
+
+在 `config.local.php` 设置：
+
+```php
+'security' => [
+    'api_entry' => 'x9m2kq',   // 非空即启用；真实接口变为 /x9m2kq/api/v1/...
+],
+```
+
+启用后：
+
+- 真实接口：`https://域名/x9m2kq/api/v1/mailboxes`
+- 直接访问 `https://域名/api/v1/...` → **404**（扫描器扑空）
+- 控制台需同步设置：打开 `public/<你的目录>/index.html`，把顶部 `const API_ENTRY = ''`
+  改成 `const API_ENTRY = 'x9m2kq';`，否则控制台调不通
+- 入站 Webhook 地址同步变为 `https://域名/x9m2kq/api/v1/hook/inbound`
+
+> 这是**纵深防御**的一环，不是替代鉴权——API Key 仍需妥善保管。
 
 ---
 

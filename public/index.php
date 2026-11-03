@@ -53,6 +53,18 @@ try {
 
 $req = new Request();
 
+// ---- 秘密入口前缀（可选，混淆 API 挂载点，防御扫描器） ----
+// 配置 security.api_entry 后，API 仅在 /<前缀>/api/v1 下响应，直接访问 /api/v1 返回 404
+$apiEntry = trim((string) Config::get('security.api_entry', ''), '/');
+if ($apiEntry !== '') {
+    if (str_starts_with($req->path, '/' . $apiEntry)) {
+        $req->path = substr($req->path, strlen($apiEntry) + 1) ?: '/';
+    } elseif (str_starts_with($req->path, '/api')) {
+        Response::notFound('not found');
+        exit;
+    }
+}
+
 // ---- CORS ----
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Headers: Content-Type, X-API-Key, X-ZC-Key, Authorization, X-ZC-Signature, X-Request-Id');

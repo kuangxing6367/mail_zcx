@@ -275,8 +275,11 @@ const store = {
 };
 
 /* API 地址：默认同源；在预览面板 / 本地打开时可手动指定 */
+/* 秘密入口前缀：若服务端 config.security.api_entry 设为非空（如 'x9m2kq'），
+   此处须填相同值，真实接口变为 /<前缀>/api/v1；留空则标准 /api/v1 */
+const API_ENTRY = '';
 function apiOrigin(){ return (store.get('zc_mail_api') || location.origin).replace(/\/+$/,''); }
-function apiBase(){ return apiOrigin() + '/api/v1'; }
+function apiBase(){ return apiOrigin() + (API_ENTRY ? '/' + API_ENTRY : '') + '/api/v1'; }
 
 let KEY = store.get('zc_mail_key');
 let ME = null;
@@ -850,7 +853,7 @@ async function pageWebhooks(){
 
     <div class="card">
       <b style="font-size:14px">入站事件</b>
-      <div class="hint" style="margin-bottom:12px">外部系统推送到 <code class="mono">/api/v1/hook/inbound</code> 的事件</div>
+      <div class="hint" style="margin-bottom:12px">外部系统推送到 <code class="mono">${apiBase()}/hook/inbound</code> 的事件</div>
       ${inbound.items.length ? `<div class="tw"><table>
         <thead><tr><th>时间</th><th>来源</th><th>事件</th><th>验签</th><th>内容</th></tr></thead>
         <tbody>${inbound.items.map(e=>`<tr>

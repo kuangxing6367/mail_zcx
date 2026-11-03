@@ -38,6 +38,9 @@ return [
         'rate_limit'      => 0,
         // 时间戳容差（秒），用于可选的时间戳签名校验
         'timestamp_window'=> 300,
+        // 秘密入口前缀：非空时 API 挂载点变为 /<前缀>/api/v1，直接访问 /api/v1 返回 404
+        // 例：设为 'x9m2kq' 后，真实接口为 https://域名/x9m2kq/api/v1/...；控制台需同步设置 API_ENTRY
+        'api_entry'       => '',
     ],
 
     'mail' => [

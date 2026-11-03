@@ -1,0 +1,85 @@
+# =============================================================
+# ZC Mail Service — 生产环境 nginx 虚拟主机（示例）
+# 适用：自托管服务器（如 82.158.224.71，宝塔 / 纯 nginx 均可）
+# 用法：改好域名/路径/php版本后，放到站点 conf 或宝塔「配置文件」里
+# =============================================================
+
+server {
+    # ---- 监听与域名 ----
+    listen 80;
+    listen 443 ssl http2;
+    server_name mail.zgric.top;   # ← 改成你的 API 域名
+
+    # ---- 站点根目录：必须指向 public/ ----
+    # 这是安全入口的核心：app/、config/、routes.php 都在 public 之上，
+    # 外部无法直接访问源码与密钥。
+    root /www/wwwroot/mail_zgric.top/public;
+    index index.php index.html;
+
+    # ---- SSL（Let's Encrypt / 宝塔证书路径示例） ----
+    # ssl_certificate     /www/server/panel/vhost/cert/mail.zgric.top/fullchain.pem;
+    # ssl_certificate_key /www/server/panel/vhost/cert/mail.zgric.top/privkey.pem;
+    # ssl_protocols TLSv1.2 TLSv1.3;
+    # ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # ---- 日志 ----
+    access_log /www/wwwlogs/mail.zgric.top.access.log;
+    error_log  /www/wwwlogs/mail.zgric.top.error.log;
+
+    # ---- 安全：隐藏后端目录，禁止直接访问敏感路径 ----
+    # app/、config/ 本就在 web 根之外，这里再兜底拦一遍
+    location ~ ^/(app|config|cli|sql|storage|routes\.php|\.git|\.github) {
+        return 404;
+    }
+
+    # =========================================================
+    # 前端控制器：所有非静态请求收口到 index.php
+    # =========================================================
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # ---- PHP 处理 ----
+    location ~ \.php$ {
+        # 宝塔用户：下面两行改成 include enable-php-82.conf; 即可
+        fastcgi_pass   unix:/tmp/php-cgi-82.sock;   # 或 127.0.0.1:9000
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include        fastcgi_params;
+
+        # 只允许 public 下的 php 被执行（双保险）
+        fastcgi_param  PHP_VALUE "open_basedir=/www/wwwroot/mail_zgric.top/:/tmp/";
+    }
+
+    # =========================================================
+    # 生产加固（可选但推荐）：给后台控制台加一道网关锁
+    # 控制台目录已改名为 zc-console（请改成你自己的随机串），再叠一层 Basic Auth
+    # 即使页面公开无妨，藏起来可避免暴露控制台入口、降低被扫风险
+    # =========================================================
+    # location ^~ /zc-console/ {
+    #     auth_basic           "ZC Mail Admin";
+    #     auth_basic_user_file /www/wwwroot/mail.zgric.top/.htpasswd;
+    #     try_files $uri $uri/ /index.php?$query_string;
+    # }
+    # 生成密码： htpasswd -c /www/wwwroot/mail.zgric.top/.htpasswd admin
+
+    # ---- 若启用 config.security.api_entry，可选：仅放行带前缀的 API，
+    #      其余 /api 直接 404（与 index.php 内的入口混淆双重保险） ----
+    # location ~ ^/api/ { return 404; }   # 启用 api_entry 时取消注释
+
+    # ---- 静态资源（admin 单文件本身）直接放行，无需 PHP ----
+    location ~* \.(html|css|js|png|svg|ico|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # ---- 宝塔默认会加 error_page 404 /404.html，务必注释/删除 ----
+    # 否则 API 返回的 JSON 404 会被替换成 HTML 页面，调用方解析失败。
+    # error_page 404 /404.html;   # ← 删掉这一行
+
+    # ---- 限制请求体大小（发信带正文/附件时） ----
+    client_max_body_size 10m;
+
+    # ---- 关闭目录列表 ----
+    autoindex off;
+}
