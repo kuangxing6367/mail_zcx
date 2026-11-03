@@ -1,0 +1,19 @@
+# 环境本地配置（含真实凭据，请勿提交到版本库）
+config/config.local.php
+
+# 运行时产物
+storage/logs/*
+storage/certs/*
+storage/cache/*
+!storage/logs/.gitkeep
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 文档站（VitePress）
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

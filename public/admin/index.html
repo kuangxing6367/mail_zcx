@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZC Mail Service · 控制台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ctext x='16' y='23' font-family='system-ui,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EZ%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0a0e17; --bg2:#0f1522; --bg3:#151d2e; --bg4:#1c2740;
+  --bd:#22304a; --bd2:#2d3d5c;
+  --tx:#e8eefb; --tx2:#93a4c0; --tx3:#61728f;
+  --ac:#6366f1; --ac2:#22d3ee; --ac3:#818cf8;
+  --ok:#10b981; --err:#f43f5e; --warn:#f59e0b;
+  --r:10px; --r2:14px;
+  --sh:0 4px 24px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--tx);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--ac3);text-decoration:none}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+/* ---------- 登录 ---------- */
+#login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(1200px 600px at 50% -10%,#1a2440 0%,#0a0e17 60%);z-index:100}
+#login .box{width:400px;max-width:92vw;background:var(--bg2);border:1px solid var(--bd);
+  border-radius:18px;padding:36px;box-shadow:var(--sh)}
+#login .logo{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+#login .logo .dot{width:38px;height:38px;border-radius:11px;
+  background:linear-gradient(135deg,var(--ac),var(--ac2));display:grid;place-items:center;
+  font-size:19px;font-weight:700;color:#fff}
+#login h1{font-size:19px;font-weight:650;letter-spacing:.2px}
+#login p.sub{color:var(--tx2);font-size:13px;margin-bottom:24px}
+
+/* ---------- 布局 ---------- */
+#shell{display:none;min-height:100vh}
+#shell.on{display:grid;grid-template-columns:228px 1fr}
+aside{background:var(--bg2);border-right:1px solid var(--bd);padding:18px 12px;
+  display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto}
+aside .brand{display:flex;align-items:center;gap:10px;padding:6px 10px 18px}
+aside .brand .dot{width:30px;height:30px;border-radius:9px;
+  background:linear-gradient(135deg,var(--ac),var(--ac2));display:grid;place-items:center;
+  font-size:15px;font-weight:700;color:#fff}
+aside .brand b{font-size:14.5px;font-weight:650}
+aside .brand span{display:block;font-size:11px;color:var(--tx3);font-weight:400}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;
+  color:var(--tx2);font-size:13.5px;cursor:pointer;transition:.15s;user-select:none}
+nav a:hover{background:var(--bg3);color:var(--tx)}
+nav a.on{background:linear-gradient(90deg,rgba(99,102,241,.18),rgba(34,211,238,.07));
+  color:#fff;box-shadow:inset 2px 0 0 var(--ac)}
+nav a .ic{width:17px;text-align:center;font-size:15px;opacity:.9}
+nav .grp{font-size:11px;color:var(--tx3);padding:16px 12px 6px;letter-spacing:.6px;text-transform:uppercase}
+aside .foot{margin-top:auto;padding:12px 10px 4px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--tx3)}
+main{padding:26px 30px 60px;overflow-x:hidden}
+
+/* ---------- 通用 ---------- */
+.hd{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+.hd h2{font-size:21px;font-weight:650;letter-spacing:.2px}
+.hd p{color:var(--tx2);font-size:13px;margin-top:3px}
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r2);padding:20px}
+.card+.card{margin-top:18px}
+.grid{display:grid;gap:16px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+label.f{display:block;font-size:12.5px;color:var(--tx2);margin-bottom:6px;font-weight:500}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--bd2);color:var(--tx);
+  padding:9px 12px;border-radius:9px;font-size:13.5px;font-family:inherit;transition:.15s;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(99,102,241,.14)}
+textarea{resize:vertical;min-height:88px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55}
+input::placeholder,textarea::placeholder{color:#4a5b78}
+select{cursor:pointer}
+.row{display:grid;gap:14px;margin-bottom:14px}
+.row.c2{grid-template-columns:1fr 1fr}
+.row.c3{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:760px){.row.c2,.row.c3{grid-template-columns:1fr}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  background:linear-gradient(135deg,var(--ac),#7c3aed);color:#fff;border:none;
+  padding:9px 17px;border-radius:9px;font-size:13.5px;font-weight:550;cursor:pointer;
+  transition:.15s;font-family:inherit;white-space:nowrap}
+.btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.btn:active{transform:none}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn.g{background:var(--bg3);color:var(--tx);border:1px solid var(--bd2)}
+.btn.g:hover{background:var(--bg4)}
+.btn.d{background:linear-gradient(135deg,#e11d48,#be123c)}
+.btn.s{padding:6px 12px;font-size:12.5px}
+.btn.big{width:100%;padding:11px}
+.tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:600;line-height:1.7}
+.tag.ok{background:rgba(16,185,129,.16);color:#34d399}
+.tag.err{background:rgba(244,63,94,.16);color:#fb7185}
+.tag.warn{background:rgba(245,158,11,.16);color:#fbbf24}
+.tag.info{background:rgba(99,102,241,.18);color:#a5b4fc}
+.tag.dim{background:var(--bg4);color:var(--tx2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;color:var(--tx3);font-size:11.5px;font-weight:600;
+  letter-spacing:.5px;text-transform:uppercase;border-bottom:1px solid var(--bd);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid rgba(34,48,74,.5);vertical-align:middle}
+tbody tr:hover{background:rgba(99,102,241,.045)}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;margin:0 -20px;padding:0 20px}
+.empty{text-align:center;color:var(--tx3);padding:44px 20px;font-size:13.5px}
+.stat{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r2);padding:18px 20px;position:relative;overflow:hidden}
+.stat::after{content:'';position:absolute;right:-30px;top:-30px;width:90px;height:90px;border-radius:50%;
+  background:radial-gradient(circle,rgba(99,102,241,.16),transparent 70%)}
+.stat .k{font-size:12px;color:var(--tx2);margin-bottom:8px}
+.stat .v{font-size:27px;font-weight:680;letter-spacing:-.5px;line-height:1.15}
+.stat .v small{font-size:13px;font-weight:500;color:var(--tx3);margin-left:3px}
+.stat .m{font-size:11.5px;color:var(--tx3);margin-top:6px}
+.mut{color:var(--tx3)}
+.mut2{color:var(--tx2)}
+.nowrap{white-space:nowrap}
+.right{text-align:right}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:99px;
+  background:var(--bg3);border:1px solid var(--bd2);font-size:12px;color:var(--tx2)}
+.pill .d{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+
+/* ---------- 图表 ---------- */
+.chart{display:flex;align-items:flex-end;gap:6px;height:150px;padding:14px 4px 0;overflow-x:auto}
+.chart .bar{flex:1;min-width:22px;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;gap:6px;height:100%}
+.chart .bar .b{width:100%;border-radius:5px 5px 2px 2px;
+  background:linear-gradient(180deg,var(--ac3),var(--ac));min-height:3px;transition:.3s;position:relative}
+.chart .bar:hover .b{filter:brightness(1.25)}
+.chart .bar .l{font-size:10px;color:var(--tx3);white-space:nowrap}
+.chart .bar .n{font-size:11px;color:var(--tx2);font-weight:600}
+
+/* ---------- 弹层 ---------- */
+#mask{position:fixed;inset:0;background:rgba(3,6,12,.72);backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;z-index:90;padding:20px}
+#mask.on{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--bd2);border-radius:16px;width:620px;
+  max-width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--sh);
+  animation:pop .18s ease}
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(8px)}}
+.modal .mh{padding:18px 22px;border-bottom:1px solid var(--bd);display:flex;
+  align-items:center;justify-content:space-between}
+.modal .mh h3{font-size:15.5px;font-weight:640}
+.modal .mb{padding:20px 22px;overflow-y:auto}
+.modal .mf{padding:15px 22px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:10px}
+.x{background:none;border:none;color:var(--tx3);font-size:22px;cursor:pointer;line-height:1;
+  padding:0 4px;transition:.15s}
+.x:hover{color:var(--tx)}
+
+/* ---------- Toast ---------- */
+#toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:200}
+.toast{background:var(--bg3);border:1px solid var(--bd2);border-left:3px solid var(--ac);
+  border-radius:10px;padding:12px 17px;font-size:13.5px;box-shadow:var(--sh);
+  min-width:250px;max-width:400px;animation:slide .22s ease}
+@keyframes slide{from{opacity:0;transform:translateX(30px)}}
+.toast.ok{border-left-color:var(--ok)}
+.toast.err{border-left-color:var(--err)}
+.toast.warn{border-left-color:var(--warn)}
+.toast .t{font-weight:600;margin-bottom:2px}
+.toast .d{color:var(--tx2);font-size:12.5px;word-break:break-word}
+
+.loading{display:inline-block;width:15px;height:15px;border:2px solid rgba(255,255,255,.25);
+  border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+pre.out{background:var(--bg);border:1px solid var(--bd);border-radius:9px;padding:14px;
+  font-size:12px;line-height:1.6;overflow:auto;max-height:340px;color:#a5d6ff;white-space:pre-wrap;word-break:break-all}
+.hint{font-size:12px;color:var(--tx3);margin-top:6px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<!-- 脚本未执行时的兜底提示（正常执行会立即移除） -->
+<div id="nojs" style="position:fixed;inset:0;z-index:99999;background:#0a0e17;color:#e8eefb;
+  display:flex;align-items:center;justify-content:center;text-align:center;padding:30px;
+  font:14px/1.8 system-ui,'PingFang SC',sans-serif">
+  <div>
+    <div style="font-size:34px;margin-bottom:12px">⚠️</div>
+    <b style="font-size:16px">页面脚本未能执行</b>
+    <div style="color:#93a4c0;margin-top:10px;max-width:480px">
+      常见原因：浏览器扩展注入了 CSP 拦截内联脚本。<br>
+      请尝试：① 用无痕/隐私窗口打开；② 逐个禁用扩展排查；③ 换个浏览器。
+    </div>
+  </div>
+</div>
+
+<!-- ============ 登录 ============ -->
+<div id="login">
+  <div class="box">
+    <div class="logo">
+      <div class="dot">Z</div>
+      <div><h1>ZC Mail Service</h1></div>
+    </div>
+    <p class="sub">发件服务管理控制台</p>
+    <label class="f">API Key</label>
+    <input id="inKey" type="password" placeholder="zc_xxxxxxxxxxxxxxxx" autocomplete="off">
+    <div class="hint">密钥可在服务器执行 <code class="mono">php cli/install.php</code> 时获取，或在宝塔查看数据库 zc_api_keys 表。</div>
+    <label class="f" style="margin-top:14px">服务地址</label>
+    <input id="inApi" placeholder="https://your-domain.com（留空则使用当前站点）" autocomplete="off">
+    <div class="hint" id="apiHint"></div>
+    <div style="height:16px"></div>
+    <button class="btn big" id="btnLogin">进入控制台</button>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="shell">
+  <aside>
+    <div class="brand">
+      <div class="dot">Z</div>
+      <div><b>ZC Mail</b><span>控制台 v1.0</span></div>
+    </div>
+    <nav id="nav">
+      <div class="grp">概览</div>
+      <a data-p="dashboard"><span class="ic">◈</span>仪表盘</a>
+      <a data-p="send"><span class="ic">✉</span>发送邮件</a>
+      <div class="grp">资源</div>
+      <a data-p="mailboxes"><span class="ic">◉</span>邮箱管理</a>
+      <a data-p="templates"><span class="ic">▤</span>邮件模板</a>
+      <a data-p="webhooks"><span class="ic">⇄</span>Webhook</a>
+      <div class="grp">记录</div>
+      <a data-p="logs"><span class="ic">≡</span>发送日志</a>
+      <a data-p="keys"><span class="ic">⚿</span>API 密钥</a>
+    </nav>
+    <div class="foot">
+      <div id="keyInfo" class="mut">未认证</div>
+      <div style="margin-top:6px"><a id="btnOut">退出登录</a></div>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div id="mask"><div class="modal" id="modal"></div></div>
+<div id="toasts"></div>
+
+<script>
+'use strict';
+/* 脚本已执行 → 移除兜底提示 */
+(function(){ const n = document.getElementById('nojs'); if (n) n.style.display = 'none'; })();
+
+/* ======================= 基础 ======================= */
+/* 存储安全封装：隐私模式 / 扩展禁用 localStorage 时页面仍可工作 */
+const store = {
+  get(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+
+/* API 地址：默认同源；在预览面板 / 本地打开时可手动指定 */
+function apiOrigin(){ return (store.get('zc_mail_api') || location.origin).replace(/\/+$/,''); }
+function apiBase(){ return apiOrigin() + '/api/v1'; }
+
+let KEY = store.get('zc_mail_key');
+let ME = null;
+
+/* 脚本异常可见化 —— 避免"按钮点不动"却无从排查 */
+function fatal(msg){
+  let el = document.getElementById('fatal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fatal';
+    el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#7f1d1d;color:#fff;' +
+      'padding:10px 16px;font:13px/1.6 system-ui,sans-serif;white-space:pre-wrap';
+    (document.body || document.documentElement).appendChild(el);
+  }
+  el.textContent = '页面脚本异常：' + msg;
+}
+window.addEventListener('error', e => fatal(e.message || 'unknown error'));
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = t => t ? String(t).replace('T',' ').slice(0,19) : '-';
+const nf = n => (n ?? 0).toLocaleString('zh-CN');
+
+function toast(msg, type='', title=''){
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = (title ? `<div class="t">${esc(title)}</div>` : '') + `<div class="d">${esc(msg)}</div>`;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3600);
+}
+
+async function api(path, opt = {}){
+  const res = await fetch(apiBase() + path, {
+    ...opt,
+    headers: Object.assign({'X-API-Key': KEY}, opt.body ? {'Content-Type':'application/json'} : {}, opt.headers||{})
+  });
+  let data;
+  try { data = await res.json(); } catch(e){ throw new Error('响应解析失败 HTTP ' + res.status); }
+  if (res.status === 401) { logout(); throw new Error(data.msg || 'API Key 无效'); }
+  if (data.code !== 0) throw Object.assign(new Error(data.msg || '请求失败'), {payload:data});
+  return data.data;
+}
+const jpost = (p, b) => api(p, {method:'POST', body:JSON.stringify(b||{})});
+const jput  = (p, b) => api(p, {method:'PUT',  body:JSON.stringify(b||{})});
+const jdel  = p => api(p, {method:'DELETE'});
+
+/* ======================= 弹层 ======================= */
+function modal(title, bodyHtml, footerHtml){
+  $('#modal').innerHTML = `
+    <div class="mh"><h3>${esc(title)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="mb">${bodyHtml}</div>
+    <div class="mf">${footerHtml || '<button class="btn g" onclick="closeModal()">关闭</button>'}</div>`;
+  $('#mask').classList.add('on');
+}
+function closeModal(){ $('#mask').classList.remove('on'); }
+$('#mask').addEventListener('click', e => { if (e.target.id === 'mask') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+window.closeModal = closeModal;
+
+function confirmBox(text, onOk, okText='确认删除'){
+  modal('确认操作', `<div style="color:var(--tx2);line-height:1.7">${text}</div>`,
+    `<button class="btn g" onclick="closeModal()">取消</button>
+     <button class="btn d" id="okBtn">${esc(okText)}</button>`);
+  $('#okBtn').onclick = async () => { closeModal(); await onOk(); };
+}
+window.confirmBox = confirmBox;
+
+/* ======================= 登录 ======================= */
+$('#btnLogin').onclick = doLogin;
+$('#inKey').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('#btnOut').onclick = () => { if (confirm('确定退出登录？')) logout(); };
+
+async function doLogin(){
+  const k = $('#inKey').value.trim();
+  if (!k) return toast('请输入 API Key', 'warn');
+
+  // 记录服务地址（留空则用同源）
+  const apiIn = $('#inApi').value.trim();
+  if (apiIn) store.set('zc_mail_api', apiIn.replace(/\/+$/,'')); else store.del('zc_mail_api');
+
+  const btn = $('#btnLogin');
+  btn.disabled = true; btn.innerHTML = '<span class="loading"></span>';
+  const old = KEY; KEY = k;
+  try {
+    await api('/logs/stats?range=today');
+    store.set('zc_mail_key', k);
+    start();
+  } catch(e){
+    KEY = old;
+    toast(e.message + '  ·  服务地址 ' + apiOrigin(), 'err', '认证失败');
+  } finally {
+    btn.disabled = false; btn.textContent = '进入控制台';
+  }
+}
+function logout(){
+  store.del('zc_mail_key');
+  KEY = '';
+  $('#shell').classList.remove('on');
+  $('#login').style.display = 'flex';
+}
+
+function start(){
+  $('#login').style.display = 'none';
+  $('#shell').classList.add('on');
+  $('#keyInfo').innerHTML = `已认证 · <code class="mono">${esc(KEY.slice(0,10))}…</code>` +
+    `<div style="margin-top:4px;font-size:11px;word-break:break-all">${esc(apiOrigin())}</div>`;
+  if (!location.hash) location.hash = '#/dashboard';
+  route();
+}
+
+/* ======================= 路由 ======================= */
+const PAGES = {
+  dashboard:{t:'仪表盘', s:'发送概况与运行状态', fn:pageDashboard},
+  send:{t:'发送邮件', s:'手动发送一封测试邮件', fn:pageSend},
+  mailboxes:{t:'邮箱管理', s:'多邮箱账号与 SMTP 配置', fn:pageMailboxes},
+  templates:{t:'邮件模板', s:'变量模板与预览', fn:pageTemplates},
+  webhooks:{t:'Webhook', s:'出站回调与入站事件', fn:pageWebhooks},
+  logs:{t:'发送日志', s:'投递记录与详情', fn:pageLogs},
+  keys:{t:'API 密钥', s:'调用凭据与限流', fn:pageKeys},
+};
+function go(p){ location.hash = '#/' + p; }
+window.go = go;
+
+window.addEventListener('hashchange', route);
+
+/* 侧边栏导航点击 → 切换路由（事件委托，覆盖所有 nav a） */
+document.getElementById('nav').addEventListener('click', e => {
+  const a = e.target.closest('a[data-p]');
+  if (!a) return;
+  e.preventDefault();
+  go(a.dataset.p);
+});
+
+function route(){
+  const p = (location.hash.replace(/^#\//,'') || 'dashboard').split('?')[0];
+  const page = PAGES[p] || PAGES.dashboard;
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.p === (PAGES[p]?p:'dashboard')));
+  const main = $('#main');
+  main.innerHTML = `<div class="hd"><div><h2>${page.t}</h2><p>${page.s}</p></div><div id="hdAct"></div></div><div id="view"></div>`;
+  page.fn();
+}
+
+/* ======================= 仪表盘 ======================= */
+async function pageDashboard(){
+  const v = $('#view');
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+  try {
+    const [stats, mb, wb] = await Promise.all([
+      api('/logs/stats?range=today'),
+      api('/mailboxes?size=1'),
+      api('/webhooks')
+    ]);
+    const rate = stats.total ? Math.round(stats.success / stats.total * 100) : 100;
+    const hours = stats.by_hour || [];
+    const max = Math.max(1, ...hours.map(h => h.total));
+
+    v.innerHTML = `
+      <div class="grid g4">
+        <div class="stat"><div class="k">今日发送</div><div class="v">${nf(stats.total)}<small>封</small></div>
+          <div class="m">成功 ${nf(stats.success)} · 失败 ${nf(stats.failed)}</div></div>
+        <div class="stat"><div class="k">成功率</div><div class="v" style="color:${rate>=95?'var(--ok)':rate>=80?'var(--warn)':'var(--err)'}">${rate}<small>%</small></div>
+          <div class="m">${stats.failed ? stats.failed + ' 封失败' : '全部投递成功'}</div></div>
+        <div class="stat"><div class="k">平均耗时</div><div class="v">${nf(stats.avg_duration_ms)}<small>ms</small></div>
+          <div class="m">SMTP 连接+认证+投递</div></div>
+        <div class="stat"><div class="k">可用邮箱</div><div class="v">${nf(mb.total)}<small>个</small></div>
+          <div class="m">Webhook ${wb.length} 个</div></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:14px">今日发送分布</b>
+          <span class="mut" style="font-size:12px">按小时</span>
+        </div>
+        ${hours.length ? `<div class="chart">${hours.map(h=>`
+          <div class="bar" title="${esc(h.hour)} — ${h.total} 封">
+            <span class="n">${h.total}</span>
+            <div class="b" style="height:${Math.max(4, h.total/max*100)}%"></div>
+            <span class="l">${esc(String(h.hour).slice(11,16))}</span>
+          </div>`).join('')}</div>`
+        : '<div class="empty">今日暂无发送记录</div>'}
+      </div>
+
+      <div class="card">
+        <b style="font-size:14px">按邮箱统计</b>
+        ${(stats.by_mailbox||[]).length ? `<div class="tw" style="margin-top:12px"><table>
+          <thead><tr><th>发件邮箱</th><th>发送量</th><th>成功</th><th>成功率</th></tr></thead>
+          <tbody>${stats.by_mailbox.map(m=>{
+            const r = m.total ? Math.round(m.success/m.total*100) : 0;
+            return `<tr><td class="mono">${esc(m.from_email)}</td><td>${nf(m.total)}</td>
+              <td>${nf(m.success)}</td>
+              <td><span class="tag ${r>=95?'ok':r>=80?'warn':'err'}">${r}%</span></td></tr>`;
+          }).join('')}</tbody></table></div>` : '<div class="empty">暂无数据</div>'}
+      </div>`;
+  } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
+/* ======================= 发送邮件 ======================= */
+async function pageSend(){
+  const v = $('#view');
+  let mbs = [];
+  try { mbs = (await api('/mailboxes?size=200')).items || []; } catch(e){}
+
+  v.innerHTML = `
+  <div class="grid g2">
+    <div class="card">
+      <div class="row c2">
+        <div><label class="f">收件人 *</label><input id="sTo" placeholder="a@example.com, b@example.com"></div>
+        <div><label class="f">抄送</label><input id="sCc" placeholder="可选，逗号分隔"></div>
+      </div>
+      <div class="row"><div><label class="f">主题 *</label><input id="sSubject" placeholder="邮件主题"></div></div>
+      <div class="row c2">
+        <div><label class="f">发件邮箱</label>
+          <select id="sMailbox"><option value="">自动选择（发件量最少）</option>
+            ${mbs.map(m=>`<option value="${m.id}">${esc(m.email)}${m.name?' · '+esc(m.name):''}</option>`).join('')}
+          </select></div>
+        <div><label class="f">模板</label>
+          <select id="sTpl"><option value="">不使用模板</option></select></div>
+      </div>
+      <div class="row"><div><label class="f">模板变量（JSON）</label>
+        <textarea id="sVars" placeholder='{"code":"839201","expire":"5"}' style="min-height:64px"></textarea></div></div>
+      <div class="row"><div><label class="f">HTML 正文</label>
+        <textarea id="sHtml" placeholder="<h1>你好</h1>"></textarea></div></div>
+      <div class="row"><div><label class="f">纯文本正文</label>
+        <textarea id="sText" placeholder="留空则自动从 HTML 提取" style="min-height:64px"></textarea></div></div>
+      <div class="row"><div><label class="f">结果回调地址（可选）</label>
+        <input id="sCb" placeholder="https://your.app/hook"></div></div>
+      <button class="btn big" id="btnSend">发送邮件</button>
+    </div>
+    <div class="card">
+      <b style="font-size:14px">返回结果</b>
+      <div class="hint" style="margin-bottom:10px">发送结果会实时显示在这里</div>
+      <pre class="out" id="sendOut">等待发送…</pre>
+      <div style="margin-top:14px">
+        <b style="font-size:14px">快速测试</b>
+        <div class="hint" style="margin-bottom:10px">用模板 verify_code 发一封验证码邮件</div>
+        <button class="btn g s" id="btnQuick">发送验证码测试</button>
+      </div>
+    </div>
+  </div>`;
+
+  try {
+    const tpls = (await api('/templates?size=200')).items || [];
+    $('#sTpl').innerHTML = '<option value="">不使用模板</option>' +
+      tpls.filter(t=>t.status==1).map(t=>`<option value="${esc(t.code)}">${esc(t.code)} · ${esc(t.name||'')}</option>`).join('');
+  } catch(e){}
+
+  $('#btnSend').onclick = async () => {
+    const body = {
+      to: $('#sTo').value.trim(),
+      cc: $('#sCc').value.trim() || undefined,
+      subject: $('#sSubject').value.trim(),
+      html: $('#sHtml').value,
+      text: $('#sText').value,
+      mailbox_id: $('#sMailbox').value || undefined,
+      template: $('#sTpl').value || undefined,
+      callback_url: $('#sCb').value.trim() || undefined,
+    };
+    const varsRaw = $('#sVars').value.trim();
+    if (varsRaw) { try { body.variables = JSON.parse(varsRaw); } catch(e){ return toast('模板变量不是合法 JSON', 'err'); } }
+    if (!body.to) return toast('请填写收件人', 'warn');
+    if (!body.template && !body.subject) return toast('请填写主题或选择模板', 'warn');
+
+    const b = $('#btnSend'); b.disabled = true; b.innerHTML = '<span class="loading"></span> 发送中';
+    $('#sendOut').textContent = '发送中…';
+    try {
+      const r = await api('/send', {method:'POST', body:JSON.stringify(body)});
+      $('#sendOut').textContent = JSON.stringify(r, null, 2);
+      toast('发送成功', 'ok', '已投递');
+    } catch(e){
+      $('#sendOut').textContent = JSON.stringify(e.payload || {error:e.message}, null, 2);
+      toast(e.message, 'err', '发送失败');
+    } finally { b.disabled = false; b.textContent = '发送邮件'; }
+  };
+
+  $('#btnQuick').onclick = async () => {
+    const to = $('#sTo').value.trim();
+    if (!to) return toast('请先填写收件人', 'warn');
+    const b = $('#btnQuick'); b.disabled = true; b.textContent = '发送中…';
+    try {
+      const r = await api('/send', {method:'POST', body:JSON.stringify({
+        to, template:'verify_code', variables:{code:String(Math.floor(100000+Math.random()*900000)), expire:'5'},
+        mailbox_id: $('#sMailbox').value || undefined
+      })});
+      $('#sendOut').textContent = JSON.stringify(r, null, 2);
+      toast('验证码邮件已发送', 'ok');
+    } catch(e){ toast(e.message, 'err'); }
+    finally { b.disabled = false; b.textContent = '发送验证码测试'; }
+  };
+}
+
+/* ======================= 邮箱管理 ======================= */
+async function pageMailboxes(){
+  const v = $('#view');
+  $('#hdAct').innerHTML = `<button class="btn" onclick="editMailbox()">＋ 添加邮箱</button>`;
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+  try {
+    const r = await api('/mailboxes?size=200');
+    if (!r.items.length) { v.innerHTML = '<div class="card"><div class="empty">还没有邮箱，点右上角添加一个</div></div>'; return; }
+    v.innerHTML = `<div class="card"><div class="tw"><table>
+      <thead><tr><th>邮箱</th><th>SMTP</th><th>加密</th><th>今日/上限</th><th>累计</th><th>状态</th><th class="right">操作</th></tr></thead>
+      <tbody>${r.items.map(m=>`
+        <tr>
+          <td><div style="font-weight:550">${esc(m.email)}</div>
+              <div class="mut" style="font-size:11.5px">${esc(m.name||m.display_name||'-')}</div></td>
+          <td class="mono" style="font-size:12px">${esc(m.smtp_host)}:${m.smtp_port}</td>
+          <td><span class="tag ${m.smtp_secure==='ssl'?'info':m.smtp_secure==='tls'?'warn':'dim'}">${esc(m.smtp_secure).toUpperCase()}</span></td>
+          <td>${nf(m.sent_today)} / ${m.daily_limit>0?nf(m.daily_limit):'∞'}</td>
+          <td>${nf(m.sent_total)}<span class="mut" style="font-size:11px"> 成功</span>
+              ${m.fail_total>0?`<span class="mut" style="font-size:11px"> · ${nf(m.fail_total)} 失败</span>`:''}</td>
+          <td><span class="tag ${m.status==1?'ok':'dim'}">${m.status==1?'启用':'禁用'}</span></td>
+          <td class="right nowrap">
+            <button class="btn g s" onclick="testMailbox(${m.id})">测试</button>
+            <button class="btn g s" onclick="editMailbox(${m.id})">编辑</button>
+            <button class="btn d s" onclick="delMailbox(${m.id},'${esc(m.email)}')">删除</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div></div>`;
+    window.__mbs = r.items;
+  } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
+async function editMailbox(id){
+  let m = {};
+  if (id) { try { m = (window.__mbs||[]).find(x=>x.id===id) || await api('/mailboxes/'+id); } catch(e){ return toast(e.message,'err'); } }
+  modal(id ? '编辑邮箱 #'+id : '添加邮箱', `
+    <div class="row c2">
+      <div><label class="f">邮箱地址 *</label><input id="mEmail" value="${esc(m.email||'')}" placeholder="noreply@example.com"></div>
+      <div><label class="f">备注名</label><input id="mName" value="${esc(m.name||'')}" placeholder="通知专用"></div>
+    </div>
+    <div class="row c2">
+      <div><label class="f">SMTP 主机 *</label><input id="mHost" value="${esc(m.smtp_host||'')}" placeholder="smtp.qq.com"></div>
+      <div><label class="f">端口</label><input id="mPort" type="number" value="${m.smtp_port||465}"></div>
+    </div>
+    <div class="row c3">
+      <div><label class="f">加密方式</label><select id="mSecure">
+        <option value="">按端口自动</option>
+        <option value="ssl" ${m.smtp_secure==='ssl'?'selected':''}>SSL (465)</option>
+        <option value="tls" ${m.smtp_secure==='tls'?'selected':''}>STARTTLS (587)</option>
+        <option value="none" ${m.smtp_secure==='none'?'selected':''}>明文 (25)</option>
+      </select></div>
+      <div><label class="f">用户名</label><input id="mUser" value="${esc(m.smtp_user||'')}" placeholder="留空=用邮箱"></div>
+      <div><label class="f">密码/授权码</label><input id="mPass" type="password" placeholder="${id?'留空则不修改':'SMTP 授权码'}"></div>
+    </div>
+    <div class="row c3">
+      <div><label class="f">发件人显示名</label><input id="mDisp" value="${esc(m.display_name||'')}"></div>
+      <div><label class="f">每日上限</label><input id="mLimit" type="number" value="${m.daily_limit??0}" placeholder="0=不限"></div>
+      <div><label class="f">状态</label><select id="mStatus">
+        <option value="1" ${m.status!=0?'selected':''}>启用</option>
+        <option value="0" ${m.status==0?'selected':''}>禁用</option>
+      </select></div>
+    </div>`,
+    `<button class="btn g" onclick="closeModal()">取消</button><button class="btn" id="mSave">保存</button>`);
+
+  $('#mSave').onclick = async () => {
+    const body = {
+      email: $('#mEmail').value.trim(), name: $('#mName').value.trim(),
+      smtp_host: $('#mHost').value.trim(), smtp_port: Number($('#mPort').value),
+      smtp_secure: $('#mSecure').value || undefined,
+      smtp_user: $('#mUser').value.trim(), display_name: $('#mDisp').value.trim(),
+      daily_limit: Number($('#mLimit').value), status: Number($('#mStatus').value),
+    };
+    const p = $('#mPass').value;
+    if (p) body.smtp_pass = p;
+    if (!body.email || !body.smtp_host) return toast('邮箱与 SMTP 主机必填', 'warn');
+    const b = $('#mSave'); b.disabled = true; b.textContent = '保存中…';
+    try {
+      if (id) await jput('/mailboxes/'+id, body); else await jpost('/mailboxes', body);
+      closeModal(); toast('已保存', 'ok'); pageMailboxes();
+    } catch(e){ toast(e.message, 'err'); b.disabled = false; b.textContent = '保存'; }
+  };
+}
+window.editMailbox = editMailbox;
+
+async function testMailbox(id){
+  modal('SMTP 连通性测试', '<div class="empty"><span class="loading"></span> 正在连接…</div>',
+    '<button class="btn g" onclick="closeModal()">关闭</button>');
+  try {
+    const r = await jpost('/mailboxes/'+id+'/test');
+    $('#modal .mb').innerHTML = `
+      <div style="margin-bottom:14px"><span class="tag ok">✓ 连接成功</span>
+        <span class="mut" style="margin-left:8px">耗时 ${r.duration_ms}ms</span></div>
+      <div class="hint" style="margin-bottom:8px">服务器能力：${(r.capabilities||[]).map(c=>`<span class="tag dim" style="margin-right:4px">${esc(c)}</span>`).join('')}</div>
+      <label class="f">SMTP 会话记录</label>
+      <pre class="out">${esc((r.session||[]).join('\n'))}</pre>`;
+  } catch(e){
+    $('#modal .mb').innerHTML = `<div style="margin-bottom:12px"><span class="tag err">✗ 测试失败</span></div>
+      <pre class="out">${esc(e.message)}</pre>`;
+  }
+}
+window.testMailbox = testMailbox;
+
+function delMailbox(id, email){
+  confirmBox(`确定删除邮箱 <b class="mono">${esc(email)}</b> 吗？<br><span class="mut">该操作不可撤销，历史日志会保留。</span>`, async () => {
+    try { await jdel('/mailboxes/'+id); toast('已删除', 'ok'); pageMailboxes(); }
+    catch(e){ toast(e.message, 'err'); }
+  });
+}
+window.delMailbox = delMailbox;
+
+/* ======================= 模板 ======================= */
+async function pageTemplates(){
+  const v = $('#view');
+  $('#hdAct').innerHTML = `<button class="btn" onclick="editTpl()">＋ 新建模板</button>`;
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+  try {
+    const r = await api('/templates?size=200');
+    if (!r.items.length) { v.innerHTML = '<div class="card"><div class="empty">还没有模板</div></div>'; return; }
+    v.innerHTML = `<div class="card"><div class="tw"><table>
+      <thead><tr><th>标识</th><th>名称</th><th>主题</th><th>状态</th><th class="right">操作</th></tr></thead>
+      <tbody>${r.items.map(t=>`<tr>
+        <td><code class="mono" style="color:var(--ac3)">${esc(t.code)}</code></td>
+        <td>${esc(t.name||'-')}</td>
+        <td class="mut" style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.subject||'-')}</td>
+        <td><span class="tag ${t.status==1?'ok':'dim'}">${t.status==1?'启用':'禁用'}</span></td>
+        <td class="right nowrap">
+          <button class="btn g s" onclick="prevTpl(${t.id})">预览</button>
+          <button class="btn g s" onclick="editTpl(${t.id})">编辑</button>
+          <button class="btn d s" onclick="delTpl(${t.id},'${esc(t.code)}')">删除</button>
+        </td></tr>`).join('')}</tbody></table></div></div>`;
+    window.__tpls = r.items;
+  } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
+async function editTpl(id){
+  let t = {};
+  if (id) { try { t = (window.__tpls||[]).find(x=>x.id===id) || await api('/templates/'+id); } catch(e){ return toast(e.message,'err'); } }
+  modal(id?'编辑模板':'新建模板', `
+    <div class="row c2">
+      <div><label class="f">模板标识 *</label><input id="tCode" value="${esc(t.code||'')}" placeholder="verify_code"></div>
+      <div><label class="f">名称</label><input id="tName" value="${esc(t.name||'')}" placeholder="验证码通知"></div>
+    </div>
+    <div class="row"><div><label class="f">主题模板</label>
+      <input id="tSubject" value="${esc(t.subject||'')}" placeholder="【ZC】您的验证码是 {{code}}"></div></div>
+    <div class="row"><div><label class="f">HTML 正文</label>
+      <textarea id="tHtml" style="min-height:120px">${esc(t.body_html||'')}</textarea></div></div>
+    <div class="row"><div><label class="f">纯文本正文</label>
+      <textarea id="tText">${esc(t.body_text||'')}</textarea></div></div>
+    <div class="row c2">
+      <div><label class="f">变量说明（JSON）</label>
+        <input id="tVars" value="${esc(t.variables||'')}" placeholder='{"code":"验证码"}'></div>
+      <div><label class="f">状态</label><select id="tStatus">
+        <option value="1" ${t.status!=0?'selected':''}>启用</option>
+        <option value="0" ${t.status==0?'selected':''}>禁用</option></select></div>
+    </div>
+    <div class="hint">变量写法：<code>{{code}}</code>、<code>{{ code }}</code>、<code>{{user.name}}</code></div>`,
+    `<button class="btn g" onclick="closeModal()">取消</button><button class="btn" id="tSave">保存</button>`);
+  $('#tSave').onclick = async () => {
+    const body = {
+      code: $('#tCode').value.trim(), name: $('#tName').value.trim(),
+      subject: $('#tSubject').value, body_html: $('#tHtml').value, body_text: $('#tText').value,
+      variables: $('#tVars').value.trim(), status: Number($('#tStatus').value)
+    };
+    if (!body.code) return toast('模板标识必填', 'warn');
+    const b = $('#tSave'); b.disabled = true; b.textContent = '保存中…';
+    try {
+      if (id) await jput('/templates/'+id, body); else await jpost('/templates', body);
+      closeModal(); toast('已保存', 'ok'); pageTemplates();
+    } catch(e){ toast(e.message, 'err'); b.disabled = false; b.textContent = '保存'; }
+  };
+}
+window.editTpl = editTpl;
+
+async function prevTpl(id){
+  let vars = {};
+  const t = (window.__tpls||[]).find(x=>x.id===id);
+  if (t && t.variables) { try { const d = JSON.parse(t.variables); Object.keys(d).forEach(k => vars[k] = '示例'+k); } catch(e){} }
+  modal('模板预览', `
+    <div class="row"><div><label class="f">变量（JSON）</label>
+      <textarea id="pVars" style="min-height:60px">${esc(JSON.stringify(vars))}</textarea></div></div>
+    <button class="btn g s" id="pGo">渲染预览</button>
+    <div style="margin-top:16px"><label class="f">渲染结果</label><div id="pOut" class="empty">点上方按钮渲染</div></div>`,
+    '<button class="btn g" onclick="closeModal()">关闭</button>');
+  const render = async () => {
+    let v = {};
+    try { v = JSON.parse($('#pVars').value || '{}'); } catch(e){ return toast('变量 JSON 格式错误', 'err'); }
+    try {
+      const r = await jpost('/templates/'+id+'/preview', {variables:v});
+      $('#pOut').innerHTML = `
+        <div style="margin-bottom:10px"><span class="mut" style="font-size:12px">主题：</span><b>${esc(r.subject)}</b></div>
+        ${r.missing && r.missing.length ? `<div class="hint" style="margin-bottom:10px">未赋值变量：${r.missing.map(m=>`<span class="tag warn">${esc(m)}</span>`).join(' ')}</div>` : ''}
+        <label class="f">HTML 渲染</label>
+        <div style="border:1px solid var(--bd);border-radius:9px;padding:14px;background:#fff;color:#111;margin-bottom:14px">${r.html || '<span class="mut">（空）</span>'}</div>
+        <label class="f">纯文本</label>
+        <pre class="out">${esc(r.text || '（空）')}</pre>`;
+    } catch(e){ toast(e.message, 'err'); }
+  };
+  $('#pGo').onclick = render;
+  render();
+}
+window.prevTpl = prevTpl;
+
+function delTpl(id, code){
+  confirmBox(`确定删除模板 <code class="mono">${esc(code)}</code> 吗？`, async () => {
+    try { await jdel('/templates/'+id); toast('已删除', 'ok'); pageTemplates(); }
+    catch(e){ toast(e.message, 'err'); }
+  });
+}
+window.delTpl = delTpl;
+
+/* ======================= Webhook ======================= */
+async function pageWebhooks(){
+  const v = $('#view');
+  $('#hdAct').innerHTML = `<button class="btn g" onclick="testHook()">测试回调</button>
+    <button class="btn" onclick="editHook()" style="margin-left:8px">＋ 新建 Webhook</button>`;
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+  try {
+    const [list, dels, inbound] = await Promise.all([
+      api('/webhooks'),
+      api('/webhooks/deliveries?size=20'),
+      api('/hook/events?size=20')
+    ]);
+
+    v.innerHTML = `
+    <div class="card">
+      <b style="font-size:14px">出站回调配置</b>
+      <div class="hint" style="margin-bottom:12px">发信完成后自动 POST 结果到这些地址，带 HMAC-SHA256 签名</div>
+      ${list.length ? `<div class="tw"><table>
+        <thead><tr><th>名称</th><th>地址</th><th>事件</th><th>签名</th><th>状态</th><th class="right">操作</th></tr></thead>
+        <tbody>${list.map(w=>`<tr>
+          <td>${esc(w.name||'-')}</td>
+          <td class="mono mut" style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.url)}</td>
+          <td>${String(w.events||'').split(',').filter(Boolean).map(e=>`<span class="tag info">${esc(e)}</span>`).join(' ')}</td>
+          <td>${w.secret?'<span class="tag ok">已启用</span>':'<span class="tag dim">无</span>'}</td>
+          <td><span class="tag ${w.status==1?'ok':'dim'}">${w.status==1?'启用':'禁用'}</span></td>
+          <td class="right nowrap">
+            <button class="btn g s" onclick="editHook(${w.id})">编辑</button>
+            <button class="btn d s" onclick="delHook(${w.id})">删除</button>
+          </td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">暂无配置</div>'}
+    </div>
+
+    <div class="card">
+      <b style="font-size:14px">出站投递记录</b>
+      <div class="hint" style="margin-bottom:12px">最近 20 条回调投递结果</div>
+      ${dels.items.length ? `<div class="tw"><table>
+        <thead><tr><th>时间</th><th>事件</th><th>地址</th><th>HTTP</th><th>重试</th><th>结果</th></tr></thead>
+        <tbody>${dels.items.map(d=>`<tr>
+          <td class="mut nowrap" style="font-size:12px">${esc(fmtTime(d.created_at))}</td>
+          <td><span class="tag info">${esc(d.event)}</span></td>
+          <td class="mono mut" style="font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.url)}</td>
+          <td>${d.http_code||'-'}</td>
+          <td>${d.attempts}</td>
+          <td><span class="tag ${d.status==='success'?'ok':'err'}">${d.status==='success'?'成功':'失败'}</span></td>
+        </tr>`).join('')}</tbody></table></div>` : '<div class="empty">暂无投递记录</div>'}
+    </div>
+
+    <div class="card">
+      <b style="font-size:14px">入站事件</b>
+      <div class="hint" style="margin-bottom:12px">外部系统推送到 <code class="mono">/api/v1/hook/inbound</code> 的事件</div>
+      ${inbound.items.length ? `<div class="tw"><table>
+        <thead><tr><th>时间</th><th>来源</th><th>事件</th><th>验签</th><th>内容</th></tr></thead>
+        <tbody>${inbound.items.map(e=>`<tr>
+          <td class="mut nowrap" style="font-size:12px">${esc(fmtTime(e.created_at))}</td>
+          <td>${esc(e.source||'-')}</td>
+          <td><span class="tag info">${esc(e.event||'-')}</span></td>
+          <td>${e.verified?'<span class="tag ok">通过</span>':'<span class="tag dim">未验签</span>'}</td>
+          <td class="mut mono" style="font-size:11.5px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.payload||'')}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<div class="empty">暂无入站事件</div>'}
+    </div>`;
+    window.__hooks = list;
+  } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
+async function editHook(id){
+  let w = {};
+  if (id) { try { w = (window.__hooks||[]).find(x=>x.id===id) || await api('/webhooks/'+id); } catch(e){ return toast(e.message,'err'); } }
+  modal(id?'编辑 Webhook':'新建 Webhook', `
+    <div class="row c2">
+      <div><label class="f">名称</label><input id="wName" value="${esc(w.name||'')}" placeholder="订单系统回调"></div>
+      <div><label class="f">状态</label><select id="wStatus">
+        <option value="1" ${w.status!=0?'selected':''}>启用</option>
+        <option value="0" ${w.status==0?'selected':''}>禁用</option></select></div>
+    </div>
+    <div class="row"><div><label class="f">回调地址 *</label>
+      <input id="wUrl" value="${esc(w.url||'')}" placeholder="https://your.app/hook"></div></div>
+    <div class="row c2">
+      <div><label class="f">签名密钥</label><input id="wSecret" value="${esc(w.secret||'')}" placeholder="留空则不签名"></div>
+      <div><label class="f">重试次数</label><input id="wRetry" type="number" value="${w.retry??2}"></div>
+    </div>
+    <div class="row"><div><label class="f">触发事件</label>
+      <input id="wEvents" value="${esc(w.events||'success,failed')}" placeholder="success,failed 或 * 表示全部"></div></div>`,
+    `<button class="btn g" onclick="closeModal()">取消</button><button class="btn" id="wSave">保存</button>`);
+  $('#wSave').onclick = async () => {
+    const body = { name:$('#wName').value.trim(), url:$('#wUrl').value.trim(), secret:$('#wSecret').value,
+      retry:Number($('#wRetry').value), events:$('#wEvents').value.trim(), status:Number($('#wStatus').value) };
+    if (!body.url) return toast('回调地址必填', 'warn');
+    const b = $('#wSave'); b.disabled = true; b.textContent = '保存中…';
+    try {
+      if (id) await jput('/webhooks/'+id, body); else await jpost('/webhooks', body);
+      closeModal(); toast('已保存', 'ok'); pageWebhooks();
+    } catch(e){ toast(e.message, 'err'); b.disabled = false; b.textContent = '保存'; }
+  };
+}
+window.editHook = editHook;
+
+function delHook(id){
+  confirmBox('确定删除该 Webhook 配置吗？', async () => {
+    try { await jdel('/webhooks/'+id); toast('已删除', 'ok'); pageWebhooks(); } catch(e){ toast(e.message,'err'); }
+  });
+}
+window.delHook = delHook;
+
+function testHook(){
+  modal('测试回调投递', `
+    <div class="row"><div><label class="f">目标地址 *</label><input id="thUrl" placeholder="https://your.app/hook"></div></div>
+    <div class="row"><div><label class="f">签名密钥（可选）</label><input id="thSecret"></div></div>
+    <div id="thOut"></div>`,
+    `<button class="btn g" onclick="closeModal()">关闭</button><button class="btn" id="thGo">发送测试</button>`);
+  $('#thGo').onclick = async () => {
+    const url = $('#thUrl').value.trim();
+    if (!url) return toast('请填写地址', 'warn');
+    const b = $('#thGo'); b.disabled = true; b.textContent = '发送中…';
+    try {
+      const r = await jpost('/webhooks/test', {url, secret:$('#thSecret').value});
+      $('#thOut').innerHTML = `<pre class="out">${esc(JSON.stringify(r, null, 2))}</pre>`;
+      toast('测试回调已发出', 'ok');
+    } catch(e){ toast(e.message, 'err'); }
+    finally { b.disabled = false; b.textContent = '发送测试'; }
+  };
+}
+window.testHook = testHook;
+
+/* ======================= 日志 ======================= */
+async function pageLogs(){
+  const v = $('#view');
+  v.innerHTML = `
+  <div class="card" style="margin-bottom:18px">
+    <div class="row c3" style="margin-bottom:0">
+      <div><label class="f">状态</label><select id="fStatus">
+        <option value="">全部</option><option value="success">成功</option>
+        <option value="failed">失败</option><option value="pending">待发送</option></select></div>
+      <div><label class="f">关键词</label><input id="fKw" placeholder="收件人或主题"></div>
+      <div style="display:flex;align-items:flex-end"><button class="btn" id="fGo" style="width:100%">查询</button></div>
+    </div>
+  </div>
+  <div id="logList"><div class="empty"><span class="loading"></span></div></div>`;
+
+  const load = async () => {
+    const box = $('#logList');
+    box.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+    const qs = new URLSearchParams({size:'30'});
+    if ($('#fStatus').value) qs.set('status', $('#fStatus').value);
+    if ($('#fKw').value.trim()) qs.set('keyword', $('#fKw').value.trim());
+    try {
+      const r = await api('/logs?' + qs);
+      if (!r.items.length) { box.innerHTML = '<div class="card"><div class="empty">没有匹配的记录</div></div>'; return; }
+      box.innerHTML = `<div class="card">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+          <b style="font-size:14px">共 ${nf(r.total)} 条</b><span class="mut" style="font-size:12px">第 ${r.page} 页 · 显示 ${r.items.length} 条</span></div>
+        <div class="tw"><table>
+        <thead><tr><th>时间</th><th>收件人</th><th>主题</th><th>发件邮箱</th><th>状态</th><th>耗时</th><th class="right">操作</th></tr></thead>
+        <tbody>${r.items.map(l=>`<tr>
+          <td class="mut nowrap" style="font-size:12px">${esc(fmtTime(l.created_at))}</td>
+          <td class="mono" style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.to_email)}</td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.subject)}</td>
+          <td class="mut mono" style="font-size:12px">${esc(l.from_email)}</td>
+          <td><span class="tag ${l.status==='success'?'ok':l.status==='failed'?'err':'warn'}">${l.status==='success'?'成功':l.status==='failed'?'失败':'待发送'}</span></td>
+          <td class="mut nowrap">${l.duration_ms}ms</td>
+          <td class="right"><button class="btn g s" onclick="logDetail(${l.id})">详情</button></td>
+        </tr>`).join('')}</tbody></table></div></div>`;
+    } catch(e){ box.innerHTML = `<div class="card"><div class="empty">加载失败：${esc(e.message)}</div></div>`; }
+  };
+  $('#fGo').onclick = load;
+  $('#fKw').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+  load();
+}
+
+async function logDetail(id){
+  modal('日志详情', '<div class="empty"><span class="loading"></span></div>', '<button class="btn g" onclick="closeModal()">关闭</button>');
+  try {
+    const l = await api('/logs/'+id);
+    $('#modal .mb').innerHTML = `
+      <div class="row c2" style="margin-bottom:10px">
+        <div><label class="f">状态</label><span class="tag ${l.status==='success'?'ok':l.status==='failed'?'err':'warn'}">${l.status}</span></div>
+        <div><label class="f">耗时</label><div>${l.duration_ms} ms</div></div>
+      </div>
+      <div class="row c2" style="margin-bottom:10px">
+        <div><label class="f">发件</label><div class="mono" style="font-size:12.5px">${esc(l.from_email)}</div></div>
+        <div><label class="f">收件</label><div class="mono" style="font-size:12.5px">${esc(l.to_email)}</div></div>
+      </div>
+      <div class="row" style="margin-bottom:10px"><div><label class="f">主题</label><div>${esc(l.subject)}</div></div></div>
+      ${l.template_code?`<div class="row" style="margin-bottom:10px"><div><label class="f">模板</label><code class="mono">${esc(l.template_code)}</code></div></div>`:''}
+      <div class="row c2" style="margin-bottom:10px">
+        <div><label class="f">SMTP 响应</label><div class="mono" style="font-size:12px">${esc(l.smtp_code)} ${esc(l.smtp_message||'')}</div></div>
+        <div><label class="f">请求 ID</label><div class="mono" style="font-size:12px">${esc(l.request_id)}</div></div>
+      </div>
+      ${l.error?`<div class="row"><div><label class="f">错误</label><pre class="out" style="color:#fb7185">${esc(l.error)}</pre></div></div>`:''}
+      <div class="row"><div><label class="f">来源 IP / UA</label>
+        <div class="mut" style="font-size:12px">${esc(l.source_ip)} · ${esc(l.user_agent||'-')}</div></div></div>
+      ${l.payload?`<div class="row"><div><label class="f">原始请求体</label><pre class="out">${esc(l.payload)}</pre></div></div>`:''}`;
+  } catch(e){ $('#modal .mb').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+window.logDetail = logDetail;
+
+/* ======================= API Key ======================= */
+async function pageKeys(){
+  const v = $('#view');
+  $('#hdAct').innerHTML = `<button class="btn" onclick="newKey()">＋ 新建密钥</button>`;
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+  try {
+    const r = await api('/keys?size=100');
+    v.innerHTML = `<div class="card"><div class="tw"><table>
+      <thead><tr><th>名称</th><th>密钥</th><th>IP 白名单</th><th>限流</th><th>调用次数</th><th>状态</th><th class="right">操作</th></tr></thead>
+      <tbody>${r.items.map(k=>`<tr>
+        <td>${esc(k.name||'-')}</td>
+        <td class="mono" style="font-size:12px">${esc(k.api_key)}</td>
+        <td class="mut" style="font-size:12px">${esc(k.allow_ips||'不限')}</td>
+        <td class="mut">${k.rate_limit>0?k.rate_limit+'/min':'不限'}</td>
+        <td>${nf(k.use_count)}</td>
+        <td><span class="tag ${k.status==1?'ok':'dim'}">${k.status==1?'启用':'禁用'}</span></td>
+        <td class="right nowrap">
+          <button class="btn g s" onclick="rotateKey(${k.id})">轮换</button>
+          <button class="btn d s" onclick="delKey(${k.id})">删除</button>
+        </td></tr>`).join('')}</tbody></table></div></div>`;
+  } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
+function newKey(){
+  modal('新建 API 密钥', `
+    <div class="row c2">
+      <div><label class="f">名称</label><input id="kName" placeholder="生产环境"></div>
+      <div><label class="f">每分钟限流</label><input id="kRate" type="number" value="0" placeholder="0=不限"></div>
+    </div>
+    <div class="row"><div><label class="f">IP 白名单（逗号分隔，支持通配）</label>
+      <input id="kIps" placeholder="1.2.3.4, 192.168.1.*"></div></div>
+    <div class="hint">创建后密钥明文仅显示一次，请立即保存。</div>`,
+    `<button class="btn g" onclick="closeModal()">取消</button><button class="btn" id="kSave">创建</button>`);
+  $('#kSave').onclick = async () => {
+    try {
+      const r = await jpost('/keys', {name:$('#kName').value.trim(), rate_limit:Number($('#kRate').value), allow_ips:$('#kIps').value.trim()});
+      modal('密钥创建成功', `
+        <div class="hint" style="margin-bottom:14px">请立即复制保存，关闭后无法再次查看明文。</div>
+        <label class="f">API Key</label>
+        <pre class="out" style="color:#34d399">${esc(r.api_key)}</pre>
+        <div style="height:12px"></div>
+        <label class="f">API Secret</label>
+        <pre class="out">${esc(r.api_secret)}</pre>`,
+        '<button class="btn g" onclick="closeModal()">我已保存</button>');
+      pageKeys();
+    } catch(e){ toast(e.message, 'err'); }
+  };
+}
+window.newKey = newKey;
+
+function rotateKey(id){
+  confirmBox('轮换后旧密钥立即失效，调用方需同步更新。确定继续？', async () => {
+    try {
+      const r = await jpost('/keys/'+id+'/rotate');
+      modal('密钥已轮换', `
+        <div class="hint" style="margin-bottom:14px">请立即更新调用方配置。</div>
+        <label class="f">新的 API Key</label><pre class="out" style="color:#34d399">${esc(r.api_key)}</pre>
+        <div style="height:12px"></div>
+        <label class="f">新的 API Secret</label><pre class="out">${esc(r.api_secret)}</pre>`,
+        '<button class="btn g" onclick="closeModal()">我已保存</button>');
+      pageKeys();
+    } catch(e){ toast(e.message, 'err'); }
+  }, '确认轮换');
+}
+window.rotateKey = rotateKey;
+
+function delKey(id){
+  confirmBox('确定删除该密钥吗？使用它的调用方将立即无法访问。', async () => {
+    try { await jdel('/keys/'+id); toast('已删除', 'ok'); pageKeys(); } catch(e){ toast(e.message,'err'); }
+  });
+}
+window.delKey = delKey;
+
+/* ======================= 启动 ======================= */
+(async function boot(){
+  // 初始化服务地址输入框
+  $('#inApi').value = store.get('zc_mail_api') || '';
+  $('#apiHint').innerHTML = '留空则使用当前站点：<code class="mono">' + esc(location.origin) + '</code>';
+
+  if (!KEY) return;
+  try { await api('/logs/stats?range=today'); start(); }
+  catch(e){ store.del('zc_mail_key'); KEY = ''; }
+})();
+</script>
+</body>
+</html>
