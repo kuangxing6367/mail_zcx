@@ -7,13 +7,16 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ctext x='16' y='23' font-family='system-ui,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EZ%3C/text%3E%3C/svg%3E">
 <style>
 :root{
-  --bg:#0a0e17; --bg2:#0f1522; --bg3:#151d2e; --bg4:#1c2740;
-  --bd:#22304a; --bd2:#2d3d5c;
-  --tx:#e8eefb; --tx2:#93a4c0; --tx3:#61728f;
+  --bg:#0b0e14; --bg2:#121620; --bg3:#171c28; --bg4:#1d2330;
+  --bd:#222a39; --bd2:#2c3648;
+  --tx:#e6ebf5; --tx2:#9aa7bd; --tx3:#5e6c84;
   --ac:#6366f1; --ac2:#22d3ee; --ac3:#818cf8;
-  --ok:#10b981; --err:#f43f5e; --warn:#f59e0b;
-  --r:10px; --r2:14px;
-  --sh:0 4px 24px rgba(0,0,0,.4);
+  --ok:#3ecf8e; --err:#f4607a; --warn:#f5a623;
+  --accent-soft:rgba(99,102,241,.14);
+  --ring:0 0 0 3px rgba(99,102,241,.30);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --r-sm:8px; --r:10px; --r2:12px;
+  --sh:0 8px 30px rgba(0,0,0,.45);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -58,6 +61,27 @@ nav .grp{font-size:11px;color:var(--tx3);padding:16px 12px 6px;letter-spacing:.6
 aside .foot{margin-top:auto;padding:12px 10px 4px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--tx3)}
 main{padding:26px 30px 60px;overflow-x:hidden}
 
+/* ---------- 侧边栏折叠 ---------- */
+#shell.collapsed{grid-template-columns:68px 1fr}
+#shell.collapsed aside{padding:18px 8px;align-items:center}
+#shell.collapsed .brand{justify-content:center;padding:6px 0 18px}
+#shell.collapsed .brand b,#shell.collapsed .brand span,
+#shell.collapsed nav a span.txt,#shell.collapsed .grp,
+#shell.collapsed .foot{display:none}
+#shell.collapsed nav a{justify-content:center;padding:11px 0}
+#shell.collapsed nav a .ic{font-size:17px}
+
+/* ---------- 活动流 ---------- */
+.feed{display:flex;flex-direction:column;margin:0 -6px}
+.feed-i{display:flex;align-items:center;gap:12px;padding:10px 6px;border-bottom:1px solid rgba(34,42,57,.55)}
+.feed-i:last-child{border-bottom:none}
+.feed-m{flex:1;min-width:0}
+.feed-m .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot-s{width:8px;height:8px;border-radius:50%;flex:none;background:var(--tx3)}
+.dot-s.ok{background:var(--ok)}
+.dot-s.err{background:var(--err)}
+.dot-s.warn{background:var(--warn)}
+
 /* ---------- 通用 ---------- */
 .hd{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
 .hd h2{font-size:21px;font-weight:650;letter-spacing:.2px}
@@ -79,17 +103,23 @@ select{cursor:pointer}
 .row.c3{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:760px){.row.c2,.row.c3{grid-template-columns:1fr}}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  background:linear-gradient(135deg,var(--ac),#7c3aed);color:#fff;border:none;
-  padding:9px 17px;border-radius:9px;font-size:13.5px;font-weight:550;cursor:pointer;
+  background:var(--ac);color:#fff;border:none;
+  padding:9px 17px;border-radius:var(--r-sm);font-size:13.5px;font-weight:550;cursor:pointer;
   transition:.15s;font-family:inherit;white-space:nowrap}
-.btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
 .btn:active{transform:none}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn.g{background:var(--bg3);color:var(--tx);border:1px solid var(--bd2)}
 .btn.g:hover{background:var(--bg4)}
 .btn.d{background:linear-gradient(135deg,#e11d48,#be123c)}
 .btn.s{padding:6px 12px;font-size:12.5px}
 .btn.big{width:100%;padding:11px}
+.icon-btn{background:var(--bg3);border:1px solid var(--bd2);color:var(--tx2);
+  width:34px;height:34px;border-radius:var(--r-sm);cursor:pointer;font-size:15px;
+  display:inline-grid;place-items:center;transition:.15s}
+.icon-btn:hover{background:var(--bg4);color:var(--tx)}
+.icon-btn:focus-visible{outline:none;box-shadow:var(--ring)}
 .tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:600;line-height:1.7}
 .tag.ok{background:rgba(16,185,129,.16);color:#34d399}
 .tag.err{background:rgba(244,63,94,.16);color:#fb7185}
@@ -210,15 +240,15 @@ pre.out{background:var(--bg);border:1px solid var(--bd);border-radius:9px;paddin
     </div>
     <nav id="nav">
       <div class="grp">概览</div>
-      <a data-p="dashboard"><span class="ic">◈</span>仪表盘</a>
-      <a data-p="send"><span class="ic">✉</span>发送邮件</a>
+      <a data-p="dashboard"><span class="ic">◈</span><span class="txt">仪表盘</span></a>
+      <a data-p="send"><span class="ic">✉</span><span class="txt">发送邮件</span></a>
       <div class="grp">资源</div>
-      <a data-p="mailboxes"><span class="ic">◉</span>邮箱管理</a>
-      <a data-p="templates"><span class="ic">▤</span>邮件模板</a>
-      <a data-p="webhooks"><span class="ic">⇄</span>Webhook</a>
+      <a data-p="mailboxes"><span class="ic">◉</span><span class="txt">邮箱管理</span></a>
+      <a data-p="templates"><span class="ic">▤</span><span class="txt">邮件模板</span></a>
+      <a data-p="webhooks"><span class="ic">⇄</span><span class="txt">Webhook</span></a>
       <div class="grp">记录</div>
-      <a data-p="logs"><span class="ic">≡</span>发送日志</a>
-      <a data-p="keys"><span class="ic">⚿</span>API 密钥</a>
+      <a data-p="logs"><span class="ic">≡</span><span class="txt">发送日志</span></a>
+      <a data-p="keys"><span class="ic">⚿</span><span class="txt">API 密钥</span></a>
     </nav>
     <div class="foot">
       <div id="keyInfo" class="mut">未认证</div>
@@ -351,6 +381,7 @@ function logout(){
 function start(){
   $('#login').style.display = 'none';
   $('#shell').classList.add('on');
+  if (store.get('zc_mail_collapsed')) $('#shell').classList.add('collapsed');
   $('#keyInfo').innerHTML = `已认证 · <code class="mono">${esc(KEY.slice(0,10))}…</code>` +
     `<div style="margin-top:4px;font-size:11px;word-break:break-all">${esc(apiOrigin())}</div>`;
   if (!location.hash) location.hash = '#/dashboard';
@@ -385,8 +416,17 @@ function route(){
   const page = PAGES[p] || PAGES.dashboard;
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.p === (PAGES[p]?p:'dashboard')));
   const main = $('#main');
-  main.innerHTML = `<div class="hd"><div><h2>${page.t}</h2><p>${page.s}</p></div><div id="hdAct"></div></div><div id="view"></div>`;
+  main.innerHTML = `<div class="hd"><div style="display:flex;align-items:center;gap:12px">
+      <button class="icon-btn" id="btnCollapse" title="折叠 / 展开侧边栏" aria-label="折叠侧边栏">☰</button>
+      <div><h2>${page.t}</h2><p>${page.s}</p></div></div><div id="hdAct"></div></div><div id="view"></div>`;
+  const cb = $('#btnCollapse');
+  if (cb) cb.onclick = toggleSidebar;
   page.fn();
+}
+
+function toggleSidebar(){
+  const on = $('#shell').classList.toggle('collapsed');
+  store.set('zc_mail_collapsed', on ? '1' : '');
 }
 
 /* ======================= 仪表盘 ======================= */
@@ -394,10 +434,11 @@ async function pageDashboard(){
   const v = $('#view');
   v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
   try {
-    const [stats, mb, wb] = await Promise.all([
+    const [stats, mb, wb, recent] = await Promise.all([
       api('/logs/stats?range=today'),
       api('/mailboxes?size=1'),
-      api('/webhooks')
+      api('/webhooks'),
+      api('/logs?size=6')
     ]);
     const rate = stats.total ? Math.round(stats.success / stats.total * 100) : 100;
     const hours = stats.by_hour || [];
@@ -439,6 +480,22 @@ async function pageDashboard(){
               <td>${nf(m.success)}</td>
               <td><span class="tag ${r>=95?'ok':r>=80?'warn':'err'}">${r}%</span></td></tr>`;
           }).join('')}</tbody></table></div>` : '<div class="empty">暂无数据</div>'}
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <b style="font-size:14px">最近活动</b>
+          <a href="#/logs" style="font-size:12px">查看全部 →</a>
+        </div>
+        ${(recent && recent.items && recent.items.length) ? `<div class="feed">${recent.items.map(l=>`
+          <div class="feed-i">
+            <span class="dot-s ${l.status==='success'?'ok':l.status==='failed'?'err':'warn'}"></span>
+            <div class="feed-m">
+              <div class="mono">${esc(l.to_email || '-')}</div>
+              <div class="mut">${esc(l.subject || '(无主题)')} · ${esc(fmtTime(l.created_at))}</div>
+            </div>
+            <span class="tag ${l.status==='success'?'ok':l.status==='failed'?'err':'warn'}">${l.status==='success'?'成功':l.status==='failed'?'失败':'待发'}</span>
+          </div>`).join('')}</div>` : '<div class="empty">暂无活动</div>'}
       </div>`;
   } catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
 }
