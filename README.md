@@ -9,7 +9,7 @@
 适用场景：注册验证码、登录告警、订单通知、系统告警、批量触达等需要**由自己的服务端可控地发邮件**的业务。
 
 - **源代码**：https://github.com/kuangxing6367/mail_zcx
-- **在线文档**：https://kuangxing6367.github.io/mail_zcx/ （VitePress 构建，托管于 GitHub Pages）
+- **在线文档**：https://mail.zgric.top/ （VitePress 构建，托管于 GitHub Pages，自定义域名）
 - **API 手册**：[`docs/API.md`](docs/API.md)
 - **问题反馈**：https://github.com/kuangxing6367/mail_zcx/issues
 

@@ -4,7 +4,9 @@ export default defineConfig({
   title: 'ZC Mail Service',
   description: '开源自托管的邮件 API 服务 — 零依赖 PHP 实现',
   lang: 'zh-CN',
-  base: '/mail_zcx/',
+  // 自定义域名 mail.zgric.top 直接挂在根路径；
+  // 若改用 GitHub Pages 默认地址（/mail_zcx/），把这里改成 '/mail_zcx/'
+  base: '/',
 
   // 仓库里的 docs/API.md 对外路由为 /api
   rewrites: {
