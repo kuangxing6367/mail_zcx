@@ -98,9 +98,76 @@ X-ZC-Signature: sha256=<hex(hmac_sha256(raw_body, secret))>
 
 所有响应都带 `request_id`（可由调用方通过 `X-Request-Id` 指定），日志与发送记录串联同一个 ID。
 
+## 并发与阻塞模型
+
+> 本节只描述**当前实现的请求时序与阻塞边界**：一个 HTTP 请求会同步等待哪些 I/O、超时怎么算、
+> 哪些环节会占用 PHP worker。不涉及功能清单，也不提供压测数据或吞吐量数字。
+> 结论来自 PHP 同步 I/O 模型与本地实测，不是性能基准。
+
+### 发信请求是同步的
+
+`POST /api/v1/send` 在**同一个请求内**跑完整条链路：
+
+```
+选箱(DB 事务) → MIME 构建 → connect → EHLO/STARTTLS → AUTH
+→ MAIL FROM → RCPT → DATA → QUIT → 写日志 → 触发 Webhook → 返回 JSON
+```
+
+调用方的 HTTP 连接一直等到 SMTP 服务器应答。SMTP 慢、端口被封、DNS 不通，这个请求就慢。
+这是设计取舍：事务邮件要求**立即拿到投递结果**（成功/失败、SMTP 响应码），所以默认不入队。
+
+### 两层超时
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `mail.timeout` | 15s | **单步**连接 / 读写超时 |
+| `mail.total_timeout` | 30s | **整条会话**总时限，`0` = 不限 |
+
+一次会话含 6 次以上网络往返。只有单步超时时，最坏情况 `15s × N` 会把请求挂到分钟级。
+`total_timeout` 在每次读取前按剩余时间重设 `stream_set_timeout`，使总闸覆盖整条链路。
+
+> 本地实测：单步 15s、总闸 2s、对端接受连接后不响应 → **2.02s** 抛出
+> `SMTP 读取超时（本次等待 2s）`。
+
+### Webhook 的「异步」有边界
+
+`webhook.async = true` 用 `register_shutdown_function` + `fastcgi_finish_request()`：
+
+- 调用方能立刻拿到响应 ✅
+- **PHP-FPM worker 仍被占用**到回调跑完 ❌ —— 并发高时 worker 池会被 drain 光
+- 多个 target 串行投递，含 `retry` 次重试与 `usleep` 递增退避，单 worker 最坏占用
+  `webhook.timeout × (retry + 1)` 秒
+- 非 FPM 环境（`php -S` / `mod_php` / CGI）没有 `fastcgi_finish_request`，
+  shutdown function 会在响应发送**之前**执行 → 退化成完全同步阻塞
+
+> 本地实测：`php -S` 下 1.5s 的回调把响应耗时拖到 **1.517s**。
+
+实现按环境显式分支，不再伪装异步：
+
+| 环境 | 行为 | 配置 |
+|---|---|---|
+| PHP-FPM | 响应后执行，仍占 worker | `webhook.async = true` |
+| 非 FPM | 显式同步回调并记 warning（保证回调不丢） | `webhook.async_fallback = sync`（默认） |
+| 非 FPM | 直接丢弃回调，绝不让请求被拖住 | `webhook.async_fallback = skip` |
+| 任意 | 完全同步投递 | `webhook.async = false` |
+
+### 想彻底不堵
+
+需要把发信与回调都改成「**入队 + 后台 worker**」：请求只写库立即返回 `202`，
+独立 CLI 进程消费队列、投递、重试。代价是调用方拿不到即时 SMTP 结果，
+需改为按 `log_id` 查询或靠 Webhook 接收最终状态。这是架构决策，当前版本未实现。
+
+### 不改架构的缓解手段
+
+- 调低 `mail.total_timeout`（如 10s），并在调用方设客户端超时
+- 调小 `webhook.timeout`、`retry` 设为 0
+- **生产务必用 PHP-FPM**，不要用 `php -S`
+- 调大 `pm.max_children`，并给发信接口单独限流（`security.rate_limit`）
+
 ## 已知边界
 
 - 不支持 IMAP 收信，只做发信与状态回调；
+- **发信与 Webhook 均为同步阻塞模型**，详见上节「并发与阻塞模型」；
 - 附件走请求体内联 base64，受 `max_attachment_mb` 限制，大文件场景应改用对象存储 + 下载链接；
 - 限流计数基于本地文件，多实例部署时需要换成 Redis 等共享存储；
 - 未实现多租户隔离，一套部署对应一组业务方。

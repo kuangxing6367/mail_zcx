@@ -46,7 +46,11 @@ return [
     'mail' => [
         'default_from_name'  => 'ZC Mail',
         'charset'            => 'UTF-8',
-        'timeout'            => 15,           // SMTP 连接/读写超时（秒）
+        'timeout'            => 15,           // 单步 SMTP 连接/读写超时（秒）
+        // 单次发信会话的整体时限（秒），0 = 不限。
+        // SMTP 一次投递含 connect/EHLO/STARTTLS/AUTH/MAIL/RCPT/DATA/QUIT 多步，
+        // 若每步都可能等 15s，最坏会把请求挂到 90s+；这里给整条会话设总闸。
+        'total_timeout'      => 30,
         'selection'          => 'least_sent', // 选箱策略: least_sent | round_robin | random | weight
         'max_recipients'     => 100,          // 单封邮件最大收件人总数
         'max_attachment_mb'  => 10,           // 单封邮件附件总大小上限(MB)
@@ -60,6 +64,10 @@ return [
         'sign_header' => 'X-ZC-Signature',    // 签名头名称
         'user_agent'  => 'ZC-Mail-Service/1.0',
         'async'       => true,                // true: 响应后投递(fastcgi_finish_request)
+        // 非 FPM 环境（php -S / mod_php / CGI）没有 fastcgi_finish_request，
+        // shutdown function 会在响应发送前执行，注册它等于同步阻塞。
+        // sync = 显式同步回调并记 warning（保证回调不丢）；skip = 直接丢弃回调。
+        'async_fallback' => 'sync',           // sync | skip
     ],
 
     'log' => [

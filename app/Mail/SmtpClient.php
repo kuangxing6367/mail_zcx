@@ -23,6 +23,9 @@ class SmtpClient
     private int $port;
     private string $secure;
     private int $timeout;
+    /** 整条 SMTP 会话的总时限（秒），0 表示不限制 */
+    private int $budget;
+    private float $deadline = 0.0;
     private string $ehloHost;
 
     /** @var string[] 会话日志（密码已脱敏） */
@@ -32,13 +35,29 @@ class SmtpClient
     public string $lastCode = '';
     private array $capabilities = [];
 
-    public function __construct(string $host, int $port, string $secure = 'ssl', int $timeout = 15)
+    public function __construct(string $host, int $port, string $secure = 'ssl', int $timeout = 15, int $budget = 0)
     {
         $this->host     = $host;
         $this->port     = $port;
         $this->secure   = strtolower($secure) ?: 'ssl';
         $this->timeout  = $timeout > 0 ? $timeout : 15;
+        $this->budget   = max(0, $budget);
         $this->ehloHost = $this->buildEhloHost();
+    }
+
+    /**
+     * 剩余可用秒数。单步超时与会话总时限取较小值，避免多步叠加把请求挂死。
+     */
+    private function remainingTimeout(): int
+    {
+        if ($this->deadline <= 0.0) {
+            return $this->timeout;
+        }
+        $left = (int) ceil($this->deadline - microtime(true));
+        if ($left <= 0) {
+            throw new RuntimeException('SMTP 会话超出总时限（' . $this->budget . 's）');
+        }
+        return min($this->timeout, $left);
     }
 
     public function sessionLog(): array
@@ -51,6 +70,8 @@ class SmtpClient
      */
     public function connect(): void
     {
+        $this->deadline = $this->budget > 0 ? microtime(true) + $this->budget : 0.0;
+
         $context = stream_context_create([
             'ssl' => [
                 // 兼容自签名证书的 SMTP 服务器；如需强校验改为 true
@@ -71,7 +92,7 @@ class SmtpClient
             $remote,
             $errno,
             $errstr,
-            $this->timeout,
+            $this->remainingTimeout(),
             STREAM_CLIENT_CONNECT,
             $context
         );
@@ -82,7 +103,7 @@ class SmtpClient
             );
         }
 
-        stream_set_timeout($socket, $this->timeout);
+        stream_set_timeout($socket, $this->remainingTimeout());
         $this->socket = $socket;
 
         $this->readResponse(); // 服务端问候语 220
@@ -236,6 +257,12 @@ class SmtpClient
 
     private function readResponse(): string
     {
+        // 每次读取前按「会话剩余时间」重设超时，使总时限覆盖整条链路而非单步。
+        $wait = $this->remainingTimeout();
+        if (is_resource($this->socket)) {
+            @stream_set_timeout($this->socket, $wait);
+        }
+
         $buffer = '';
         while (($line = @fgets($this->socket, 515)) !== false) {
             $buffer .= $line;
@@ -248,7 +275,7 @@ class SmtpClient
         if ($buffer === '') {
             $meta = is_resource($this->socket) ? stream_get_meta_data($this->socket) : [];
             if (!empty($meta['timed_out'])) {
-                throw new RuntimeException('SMTP 读取超时（' . $this->timeout . 's）');
+                throw new RuntimeException('SMTP 读取超时（本次等待 ' . $wait . 's）');
             }
             throw new RuntimeException('SMTP 连接被对端关闭');
         }

@@ -148,7 +148,13 @@ class Mailer
         $error = '';
 
         try {
-            $client = new SmtpClient($cred['host'], $cred['port'], $cred['secure'], (int) Config::get('mail.timeout', 15));
+            $client = new SmtpClient(
+                $cred['host'],
+                $cred['port'],
+                $cred['secure'],
+                (int) Config::get('mail.timeout', 15),
+                (int) Config::get('mail.total_timeout', 30)
+            );
             $client->connect();
             $client->authenticate($cred['user'], $cred['pass']);
             $client->send($fromEmail, $recipients, $message);

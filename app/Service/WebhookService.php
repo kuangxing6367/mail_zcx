@@ -123,7 +123,12 @@ class WebhookService
     }
 
     /**
-     * 异步派发：在响应发送给调用方之后执行，不阻塞接口
+     * 响应后派发。
+     *
+     * 边界：只有 PHP-FPM 提供 fastcgi_finish_request()。注册 shutdown function
+     * 只是「先把响应发给调用方」，FPM worker 仍被占用到回调跑完；
+     * 非 FPM 环境（php -S / mod_php / CGI）连响应都发不出去，会退化成完全同步阻塞。
+     * 这里按环境显式分支，不再伪装异步。
      */
     public function dispatchAsync(string $event, array $payload, ?string $callbackUrl = null, ?int $logId = null, string $callbackSecret = ''): void
     {
@@ -132,10 +137,21 @@ class WebhookService
             return;
         }
 
-        register_shutdown_function(function () use ($event, $payload, $callbackUrl, $logId, $callbackSecret) {
-            if (function_exists('fastcgi_finish_request')) {
-                @fastcgi_finish_request();
+        if (!function_exists('fastcgi_finish_request')) {
+            $fallback = (string) Config::get('webhook.async_fallback', 'sync');
+            Logger::warning('Webhook 异步不可用（缺少 fastcgi_finish_request），按 ' . $fallback . ' 处理');
+            if ($fallback === 'sync') {
+                try {
+                    $this->dispatch($event, $payload, $callbackUrl, $logId, $callbackSecret);
+                } catch (\Throwable $e) {
+                    Logger::error('Webhook 同步兜底派发失败: ' . $e->getMessage());
+                }
             }
+            return;
+        }
+
+        register_shutdown_function(function () use ($event, $payload, $callbackUrl, $logId, $callbackSecret) {
+            @fastcgi_finish_request();
             try {
                 $this->dispatch($event, $payload, $callbackUrl, $logId, $callbackSecret);
             } catch (\Throwable $e) {
