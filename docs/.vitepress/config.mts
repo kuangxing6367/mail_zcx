@@ -28,7 +28,8 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
-      { text: '指南', link: '/guide' },
+      { text: '快速开始', link: '/guide' },
+      { text: '宝塔部署', link: '/deploy-baota' },
       { text: 'API', link: '/api' },
       { text: '设计', link: '/architecture' },
       { text: 'GitHub', link: 'https://github.com/kuangxing6367/mail_zcx' },
@@ -36,9 +37,15 @@ export default defineConfig({
 
     sidebar: [
       {
-        text: '文档',
+        text: '部署',
         items: [
           { text: '快速开始', link: '/guide' },
+          { text: '宝塔面板部署', link: '/deploy-baota' },
+        ],
+      },
+      {
+        text: '参考',
+        items: [
           { text: 'API 手册', link: '/api' },
           { text: '设计说明', link: '/architecture' },
         ],

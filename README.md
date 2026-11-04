@@ -81,6 +81,29 @@ storage/                  # 日志 / 证书 / 限流缓存
 
 ## 快速开始
 
+### 0. 先看：部署完打开哪个地址？
+
+这个项目**没有传统首页**。打开域名根 `/` 看到的是一段 JSON，不会跳转到任何网页。
+控制台是独立的静态文件，必须手动加路径。
+
+| 想打开 | 地址 | 实际会看到 |
+|---|---|---|
+| 域名根（健康检查） | `https://你的域名/` | `{"code":0,"msg":"ok",...}` JSON，**不是网页、不跳转** |
+| **Web 控制台** ✅ | `https://你的域名/zc-console/` | 登录界面，粘贴 API Key 进入 |
+| API | `https://你的域名/api/v1/mailboxes` | JSON；不带 Key 返回 401 |
+| 在线文档 | `https://mail.zgric.top/` | VitePress 文档站 |
+
+**两个目录别搞混**：命令行一律在**项目根** `mail_zcx/` 执行；Web 服务器（nginx / 宝塔「运行目录」）
+必须指向 **`public/`**。把项目根直接设成站点根会暴露 `config/config.local.php`（DB 密码、密钥）。
+
+| 部署方式 | 说明 |
+|---|---|
+| **宝塔面板（推荐）** | [文档站 · 宝塔图形化部署](https://mail.zgric.top/deploy-baota)，全程点击 + `deploy/bootstrap.sh` 一键初始化 |
+| 纯 nginx 手工 | 本文下面第 4 步 + `deploy/nginx-mail-zgric.top.conf.example` |
+| 本地预览 | 项目根执行 `php -S 127.0.0.1:8000 -t public public/index.php`，打开 `http://127.0.0.1:8000/zc-console/` |
+
+> 完整入口说明、首次部署顺序、常见报错速查见[文档站 · 快速开始](https://mail.zgric.top/guide)。
+
 ### 1. 环境要求
 
 - PHP ≥ 8.0，扩展：`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json`
@@ -340,13 +363,18 @@ php -d extension=openssl cli/test_smtp.php --port=2525 --secure=none
 
 ## 部署踩坑记录
 
-1. **`||` 不是字符串拼接** —— MySQL 里是逻辑 OR，必须用 `CONCAT()`
-2. **宝塔 `error_page 404 /404.html`** 会拦截 API 的 JSON 404 → 注释掉
-3. **php-fpm 的 opcache** —— 改 PHP 代码后必须 `/etc/init.d/php-fpm-82 reload`
-4. **阿里云未备案域名的 80 端口拦截** —— 返回 `403 Server: Beaver`。
+1. **打开域名根只看到一段 JSON** —— 正常，根路径被健康检查占用，控制台在 `/zc-console/`，不自动跳转。
+2. **`/zc-console/` 返回 401 JSON** —— 请求落到了 PHP 路由，说明伪静态 `try_files` 没生效或运行目录没设 `/public`。
+3. **宝塔「网站目录」别直接改成 `.../public`** —— 宝塔会再拼一次运行目录 `/public`，变成 `.../public/public` → 404。
+   正确做法：网站目录保持项目根，只把**运行目录**设为 `/public`。
+4. **解压后多套一层目录**（`站点根/mail_zcx/app/...`）—— 把内层文件全部上移到站点根。
+5. **`||` 不是字符串拼接** —— MySQL 里是逻辑 OR，必须用 `CONCAT()`
+6. **宝塔 `error_page 404 /404.html`** 会拦截 API 的 JSON 404 → 注释掉
+7. **php-fpm 的 opcache** —— 改 PHP 代码后必须 `/etc/init.d/php-fpm-82 reload`
+8. **阿里云未备案域名的 80 端口拦截** —— 返回 `403 Server: Beaver`。
    解决方案：源站同一 server 块内同时监听 80 与 443，443 配自签证书（CDN Full 模式不校验），
    对外统一走 `https://`；或在 CDN 开启 Always Use HTTPS，让边缘直接 301、不回源 80。
-5. **宝塔 `extension/*.conf` 是在 server 块内 include 的**，不能放 `server` 指令。
+9. **宝塔 `extension/*.conf` 是在 server 块内 include 的**，不能放 `server` 指令。
 
 ---
 

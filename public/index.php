@@ -37,6 +37,11 @@ if (PHP_SAPI === 'cli-server') {
     if ($requestPath !== '/' && is_file($staticFile)) {
         return false;
     }
+    // 目录请求补 index.html：让 php -S 与 nginx 的 try_files 行为一致。
+    // 否则 /zc-console/ 会落到 PHP 路由被鉴权拦截，返回 401 JSON。
+    if (is_dir($staticFile) && is_file(rtrim($staticFile, '/') . '/index.html')) {
+        return false;
+    }
 }
 
 // ---- 引导 ----
