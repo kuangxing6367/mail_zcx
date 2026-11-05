@@ -1,0 +1,37 @@
+; =============================================================================
+; ZC Mail —— SMTP 入站进程守护（supervisor）
+;
+; 放到 /etc/supervisor/conf.d/zc-mail-smtpd.conf（宝塔：软件商店 → supervisor → 添加守护进程）
+; 然后 supervisorctl reread && supervisorctl update
+;
+; 注意三点：
+;   1) command 里必须用 PHP 的**完整路径**。宝塔是多版本 PHP，直接用 php 会用到系统的
+;      另一个版本，扩展可能不全
+;   2) user 用 www 即可。本进程只监听 127.0.0.1:2525，不占特权端口，
+;      25 端口由 nginx 以 root 绑定后转发，所以这里不需要 root
+;   3) 必须**同时**守护 cli/worker.php，否则邮件收进来会停在 pending 状态
+; =============================================================================
+
+[program:zc-mail-smtpd]
+command=/www/server/php/82/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php
+directory=/www/wwwroot/mail.example.com
+user=www
+autostart=true
+autorestart=true
+startsecs=5
+startretries=10
+stopasgroup=true
+killasgroup=true
+stopsignal=TERM
+stopwaitsecs=15
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/mail.example.com/storage/logs/smtpd.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5
+environment=PHP_INI_SCAN_DIR="/www/server/php/82/etc/php.d"
+
+; 只开一个进程就够：收信只做「落库 + 入队」，单封耗时 < 50ms。
+; 并发确实吃紧时再起第二个（换端口）并让 nginx upstream 轮询：
+; [program:zc-mail-smtpd-2]
+; command=/www/server/php/82/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php --port=2526
+; ...（其余同上）

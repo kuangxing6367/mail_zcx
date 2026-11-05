@@ -37,6 +37,21 @@ return [
         'timeout'       => 15,   // 单步 SMTP 超时
         'total_timeout' => 30,   // 整条会话总时限，0 = 不限
     ],
+    // SMTP 入站：让只会说 SMTP 的老系统直接投递，不需要改成 HTTP 调用
+    // 开启前必须：① nginx stream 把 25/587 转到 127.0.0.1:2525  ② 常驻跑 cli/worker.php
+    // 详见文档 /smtp-in
+    'smtp_in' => [
+        'enabled'  => false,             // 不用就保持 false
+        'hostname' => 'mail.example.com',// EHLO 里宣告的域名
+        'port'     => 2525,
+        // 走 nginx 转发时置 true 才能拿到真实客户端 IP；
+        // 直连（本机 telnet 调试）时置 false，否则会多等 0.5 秒探测
+        'proxy_protocol' => true,
+        // 'auth_username' => 'apikey',  // 留空 = 任意用户名，密码必须是有效 API Key
+        // 'allow_ips'     => ['192.168.1.*'],
+        // 'tls_cert'      => '/path/fullchain.pem',  // 填了才宣告 STARTTLS
+        // 'tls_key'       => '/path/privkey.pem',
+    ],
     'webhook' => [
         'async'          => true,   // FPM 下响应后投递（仍占 worker）
         'async_fallback' => 'sync', // 非 FPM 环境：sync（显式同步）| skip（丢弃回调）

@@ -1,0 +1,102 @@
+# =============================================================================
+# ZC Mail —— SMTP 入站 nginx 中转配置
+#
+# 作用：把公网 25 / 587（可选 465）转发到本机的 cli/smtpd.php
+#       为什么不在 PHP 里直接监听 25：
+#         1) 1024 以下端口需要 root，让 PHP 以 root 跑是安全事故
+#         2) 端口被占用时无法优雅切换、无法做连接数控制
+#         3) nginx 能做限流、连接数上限、多实例负载均衡
+#
+# 文件位置：/www/server/nginx/conf/stream/zc-mail-smtp.conf（宝塔）
+#           /etc/nginx/stream.d/zc-mail-smtp.conf（通用）
+#
+# 注意：stream 块必须写在 nginx.conf 的 **http { } 之外**，
+#       不能放进站点配置文件（站点配置整个都在 http 块里）。
+#       在 nginx.conf 末尾加：
+#
+#           stream {
+#               include /www/server/nginx/conf/stream/*.conf;
+#           }
+#
+# 改完必须 `nginx -t && nginx -s reload`
+# =============================================================================
+
+# 后端：cli/smtpd.php 监听的内部端口
+# 单进程就够（收信只做落库入队，单封 < 50ms）。
+# 想提高并发可以起多个进程监听不同端口，在这里加多行让 nginx 轮询：
+#   进程 A: php cli/smtpd.php --port=2525
+#   进程 B: php cli/smtpd.php --port=2526
+upstream zc_mail_smtpd {
+    server 127.0.0.1:2525 max_fails=3 fail_timeout=10s;
+    # server 127.0.0.1:2526 max_fails=3 fail_timeout=10s;
+    # server 127.0.0.1:2527 max_fails=3 fail_timeout=10s;
+}
+
+# -----------------------------------------------------------------------------
+# 25：MTA 之间投递（老系统、扫描仪、打印机、其他邮件服务器直连）
+# -----------------------------------------------------------------------------
+server {
+    listen 25;
+    listen [::]:25;
+
+    proxy_pass zc_mail_smtpd;
+
+    # 把真实客户端 IP 传给后端（PROXY protocol v1 文本格式）。
+    # 后端 config 里 smtp_in.proxy_protocol 必须为 true，否则日志里全是 127.0.0.1
+    proxy_protocol on;
+
+    proxy_connect_timeout 5s;
+    # 大附件传输可能较慢，读超时给足；后端自己有 idle_timeout 兜底
+    proxy_timeout        300s;
+
+    # 连接数限流：单 IP 并发上限，防被当成开放中继刷
+    # （nginx stream 的 limit_conn 需要先在 http 块定义 limit_conn_zone，
+    #   stream 里用 limit_conn_zone 也可以，见下方注释）
+    # limit_conn per_ip_smtp 5;
+}
+
+# -----------------------------------------------------------------------------
+# 587：submission（客户端提交，标准上要求先 STARTTLS 再 AUTH）
+# -----------------------------------------------------------------------------
+server {
+    listen 587;
+    listen [::]:587;
+
+    proxy_pass zc_mail_smtpd;
+    proxy_protocol on;
+
+    proxy_connect_timeout 5s;
+    proxy_timeout        300s;
+}
+
+# -----------------------------------------------------------------------------
+# 465：SMTPS（隐式 TLS）。默认注释掉。
+#
+# cli/smtpd.php 只实现了 STARTTLS（明文端口升级），没有实现「连上就 TLS」。
+# 要用 465 就让 nginx 在 TCP 层做 TLS 终止，转发给后端的是明文 SMTP：
+# 客户端 →(TLS)→ nginx →(明文, 本机回环)→ smtpd.php
+#
+# 证书路径按实际情况改。开了 465 之后，老设备如果不支持 STARTTLS 就能直接连 465。
+# -----------------------------------------------------------------------------
+# server {
+#     listen 465 ssl;
+#     listen [::]:465 ssl;
+#
+#     ssl_certificate     /www/server/panel/vhost/cert/mail.example.com/fullchain.pem;
+#     ssl_certificate_key /www/server/panel/vhost/cert/mail.example.com/privkey.pem;
+#     ssl_protocols       TLSv1.2 TLSv1.3;
+#
+#     proxy_pass zc_mail_smtpd;
+#     proxy_protocol on;
+#
+#     proxy_connect_timeout 5s;
+#     proxy_timeout        300s;
+# }
+
+# -----------------------------------------------------------------------------
+# 可选：单 IP 并发限制
+#   放在 stream 块级别（与 server 同级）：
+#     limit_conn_zone $binary_remote_addr zone=per_ip_smtp:10m;
+#   然后在 server 里加：
+#     limit_conn per_ip_smtp 5;
+# -----------------------------------------------------------------------------

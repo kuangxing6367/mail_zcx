@@ -42,6 +42,7 @@
 | **Webhook 出站** | 发信结果异步回调，HMAC-SHA256 签名（`X-ZC-Signature`），失败自动重试，投递全程留痕 |
 | **Webhook 入站** | 暴露 `/api/v1/hook/inbound` 接收外部事件，可选签名校验与二次转发 |
 | **异步队列** | 入队即返回 `202`，worker 后台投递、指数退避重试、卡死任务自动回收 |
+| **SMTP 入站** | 内置标准 SMTP 服务（AUTH PLAIN/LOGIN、STARTTLS、PROXY protocol），老系统直接填服务器地址即可发信，走同一条投递链路 |
 | **发送日志** | 收件人、主题、SMTP 响应码、错误、耗时、来源 IP、原始请求体，按状态/关键词检索 |
 | **统计报表** | 按日 / 7 天 / 30 天汇总，含按邮箱、按小时的分布 |
 | **Web 控制台** | 纯静态单文件，无框架无 CDN，覆盖仪表盘 / 发信 / 邮箱 / 模板 / Webhook / 日志 / 密钥 |
@@ -75,6 +76,8 @@ config/
 sql/schema.sql            # 建表语句（7 张表）
 cli/
   install.php             # 一键建库建表
+  worker.php              # 发信队列 worker（后台投递）
+  smtpd.php               # SMTP 入站服务（接收标准 SMTP 投递）
   test_smtp.php           # SMTP 连通性自测
   mock_smtp.php           # 本地 mock SMTP 服务器（联调用）
 routes.php                # 路由表
@@ -180,7 +183,32 @@ php cli/worker.php --once
 不启动 worker，邮件会一直停在 `pending`。想改回同步：在 `config.local.php` 里设
 `'mail' => ['queue' => ['enabled' => false]]`。
 
-### 6. 本地起服务（调试用）
+### 6. 可选：用 25 端口收信（SMTP 入站）
+
+如果你的老系统（打印机、NAS、旧业务代码、监控告警）**只会填 SMTP 地址、不会调 HTTP**，
+可以用内置的 SMTP 入站服务，让它们按标准协议投递：
+
+```php
+// config/config.local.php
+return ['smtp_in' => ['enabled' => true, 'hostname' => 'mail.example.com']];
+```
+
+```bash
+# 1) 起收信进程（只监听 127.0.0.1:2525，不直接占 25）
+php cli/smtpd.php
+
+# 2) nginx 把公网 25 / 587 转进来（配置见 deploy/nginx-smtp-stream.conf.example）
+#    关键是 proxy_protocol on; 后端也要 proxy_protocol => true 才能拿到真实 IP
+
+# 3) worker 照常在跑，收进来的信走同一条投递链路
+```
+
+客户端配置：服务器填你的域名，端口 25 或 587，**密码填 API Key**（用户名随意），
+加密选 STARTTLS 或明文。发件人会被自动重写为你配置的邮箱——否则 QQ/163 会因发件人不一致直接拒信。
+
+完整说明、排错表与安全边界见 [SMTP 入站文档](https://mail.zgric.top/smtp-in)。
+
+### 7. 本地起服务（调试用）
 
 ```bash
 php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extension=curl \

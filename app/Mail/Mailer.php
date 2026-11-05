@@ -114,6 +114,150 @@ class Mailer
     }
 
     /**
+     * 阶段一（SMTP 入站专用）：**原样透传**客户端发来的 MIME，不重新组包。
+     *
+     * 为什么不复用 buildMessage()：SMTP 客户端送来的信已经是完整 MIME
+     * （multipart／附件／编码／自定义头都在里面），解析成 html/text 再重组会丢掉结构，
+     * 对老系统投递过来的邮件（尤其是回执、带附件的报表）是破坏性的。
+     * 这里只做必要的头部清理与 From 重写，其余原样入队。
+     *
+     * @param array  $envelope ['from' => envelope sender, 'to' => [rcpt...], 'subject' => '']
+     * @param string $rawMessage DATA 段原始内容（已去 dot-stuffing）
+     */
+    public function prepareRaw(array $envelope, string $rawMessage, array $context = []): array
+    {
+        $to = $this->parseAddresses($envelope['to'] ?? []);
+        if (!$to) {
+            throw new InvalidArgumentException('缺少收件人参数 to');
+        }
+
+        $maxRecipients = (int) Config::get('mail.max_recipients', 100);
+        if (count($to) > $maxRecipients) {
+            throw new InvalidArgumentException('收件人数量超过上限 ' . $maxRecipients);
+        }
+
+        // ---------- 选箱：优先匹配 envelope sender 是否为本站已配置邮箱 ----------
+        $fromHint = strtolower(trim((string) ($envelope['from'] ?? '')));
+        $mailbox  = null;
+        if ($fromHint !== '') {
+            try {
+                $mailbox = $this->mailboxes->selectForSend(null, $fromHint);
+            } catch (\Throwable $e) {
+                // 客户端用的发件人不在本服务配置里是常见情况，回退到智能选箱即可
+                $mailbox = null;
+            }
+        }
+        $mailbox ??= $this->mailboxes->selectForSend();
+
+        $fromEmail = (string) $mailbox['email'];
+        $fromName  = trim((string) ($envelope['from_name'] ?? ''))
+            ?: ((string) $mailbox['display_name'] ?: (string) Config::get('mail.default_from_name', ''));
+
+        // ---------- 头部清理与 From 重写 ----------
+        [$rawMessage, $originalFrom] = $this->rewriteRawHeaders($rawMessage, $fromEmail, $fromName);
+
+        // ---------- 主题（只用于日志展示）----------
+        $subject = trim((string) ($envelope['subject'] ?? ''));
+        if ($subject === '' && preg_match('/^Subject:[ \t]*(.*(?:\r?\n[ \t].*)*)/mi', $rawMessage, $m)) {
+            $subject = trim(preg_replace('/\r?\n[ \t]+/', ' ', $m[1]));
+        }
+        $subject = trim((string) @mb_decode_mimeheader($subject));
+
+        $requestId = (string) ($context['request_id'] ?? RequestContext::get('request_id', ''));
+
+        // 日志只存信封摘要，正文原文随作业 payload 走，避免重复落库
+        $payloadForLog = [
+            'source'        => 'smtp',
+            'envelope_from' => $fromHint,
+            'original_from' => $originalFrom,
+            'size'          => strlen($rawMessage),
+        ];
+
+        $logId = $this->logs->create([
+            'request_id'    => $requestId,
+            'mailbox_id'    => (int) $mailbox['id'],
+            'from_email'    => $fromEmail,
+            'to_email'      => $this->joinEmails($to),
+            'cc_email'      => '',
+            'bcc_email'     => '',
+            'subject'       => mb_substr($subject, 0, 500),
+            'template_code' => '',
+            'status'        => 'pending',
+            'source_ip'     => (string) ($context['source_ip'] ?? ''),
+            'user_agent'    => mb_substr((string) ($context['user_agent'] ?? 'SMTP'), 0, 255),
+            'payload'       => Config::get('mail.log_payload', true)
+                ? mb_substr(json_encode($payloadForLog, JSON_UNESCAPED_UNICODE), 0, 65535)
+                : null,
+        ]);
+
+        return [
+            'log_id'       => $logId,
+            'request_id'   => $requestId,
+            'mailbox_id'   => (int) $mailbox['id'],
+            'from_email'   => $fromEmail,
+            'from_name'    => $fromName,
+            'recipients'   => array_map(static fn($a) => $a[0], $to),
+            'message'      => $rawMessage,
+            'subject'      => $subject,
+            'to'           => $this->joinEmails($to),
+            'cc'           => '',
+            'bcc'          => '',
+            'missing_vars' => [],
+            'input'        => ['source' => 'smtp', 'callback_url' => (string) ($envelope['callback_url'] ?? '')],
+            'context'      => $context,
+        ];
+    }
+
+    /**
+     * 清理原始 MIME 头：
+     *   1. 去掉 Bcc（避免泄露抄送人，SMTP 投递时本来就不该带）
+     *   2. 按需把 From 重写为真实发信邮箱（否则 QQ/163 因发件人不一致直接 550）
+     *   3. 保留原发件人为 Reply-To，不丢回信线索
+     *
+     * @return array{0:string,1:string} [处理后的原文, 原始 From]
+     */
+    private function rewriteRawHeaders(string $raw, string $fromEmail, string $fromName): array
+    {
+        $originalFrom = '';
+        if (preg_match('/^From:[ \t]*(.*(?:\r?\n[ \t].*)*)/mi', $raw, $m)) {
+            $originalFrom = trim(preg_replace('/\r?\n[ \t]+/', ' ', $m[1]));
+        }
+
+        // 剥离 Bcc 头（含折行续行）
+        $raw = (string) preg_replace('/^Bcc:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*\r?\n/mi', '', $raw);
+
+        if (!(bool) Config::get('smtp_in.rewrite_from', true)) {
+            return [$raw, $originalFrom];
+        }
+
+        $nameEncoded = $fromName !== '' ? mb_encode_mimeheader($fromName, 'UTF-8', 'B') : '';
+        $newFrom     = $nameEncoded !== '' ? $nameEncoded . ' <' . $fromEmail . '>' : '<' . $fromEmail . '>';
+
+        $replaced = (string) preg_replace(
+            '/^From:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*\r?\n/mi',
+            'From: ' . $newFrom . "\r\n",
+            $raw,
+            1,
+            $count
+        );
+        if ($count > 0) {
+            $raw = $replaced;
+        } else {
+            // 没有 From 头：补在头部
+            $raw = 'From: ' . $newFrom . "\r\n" . $raw;
+        }
+
+        // 原发件人留一条回信线索（仅在原地址不是自己、且原文没有 Reply-To 时）
+        $keepReplyTo = (bool) Config::get('smtp_in.reply_to_original', true);
+        if ($keepReplyTo && $originalFrom !== '' && stripos($originalFrom, $fromEmail) === false
+            && !preg_match('/^Reply-To:/mi', $raw)) {
+            $raw = 'Reply-To: ' . $originalFrom . "\r\n" . $raw;
+        }
+
+        return [$raw, $originalFrom];
+    }
+
+    /**
      * 阶段二：执行 SMTP 投递（worker 或同步模式调用）
      * 网络异常内部捕获并转为 failed 结果，不向外抛；邮箱缺失等前置错误会抛。
      */

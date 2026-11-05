@@ -71,6 +71,38 @@ return [
         ],
     ],
 
+    // ---- SMTP 入站（标准 SMTP 协议入口）----
+    // 让只会说 SMTP 的老系统（打印机 / NAS / 老业务代码 / 监控告警）直接投递，
+    // 不需要改成 HTTP 调用。进程是 cli/smtpd.php，通常由 nginx stream 把 25/587 转进来。
+    //
+    // 注意：这里解决的是「入站 25」，与云厂商封禁「出站 25」是两件事，
+    //       出站投递默认走 465/587，不受 25 封禁影响。详见文档 docs/smtp-in.md
+    'smtp_in' => [
+        'enabled'         => false,           // 总开关，false 时进程拒绝启动
+        'listen'          => '127.0.0.1',     // 只监听本地，公网由 nginx 转发
+        'port'            => 2525,            // 内部端口，nginx 把 25/587 转到这里
+        'hostname'        => 'localhost',     // EHLO 里宣告的域名，建议填真实发信域名
+        'max_size_mb'     => 10,              // 单封信上限（作业表是 MEDIUMTEXT，16MB 封顶）
+        'max_recipients'  => 50,              // 单封最大收件人数
+        'idle_timeout'    => 120,             // 空闲断开秒数
+        'max_connections' => 20,              // 瞬时并发会话上限（超了直接 421）
+        'auth_required'   => true,            // 是否要求 AUTH（生产必须 true）
+        // 留空 = 接受任意用户名，密码必须是有效的 API Key；
+        // 填了则要求用户名与此完全一致（密码仍是 API Key）
+        'auth_username'   => '',
+        'allow_ips'       => [],              // 入站 IP 白名单，空 = 不限制；支持 192.168.1.*
+        // nginx stream 开了 proxy_protocol on 时置 true，才能拿到真实客户端 IP
+        'proxy_protocol'  => true,
+        // 重写头部 From 为本服务选中的发件邮箱。QQ/163 等会校验发件人一致性，
+        // 不重写基本必被拒（554/550）；原发件人会写进 Reply-To 保留回信线索
+        'rewrite_from'    => true,
+        'reply_to_original' => true,
+        // STARTTLS（可选）。填了证书才在 EHLO 里宣告 STARTTLS。
+        // 证书需与 hostname 匹配，且 PHP 进程要有读权限
+        'tls_cert'        => '',
+        'tls_key'         => '',
+    ],
+
     'webhook' => [
         'timeout'     => 5,                   // 出站回调超时（秒）
         'retry'       => 2,                   // 失败重试次数
