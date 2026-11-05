@@ -192,6 +192,59 @@ curl https://你的域名/health
 
 ---
 
+## 11. 启动发信 worker（默认队列必需）
+
+`mail.queue.enabled` 默认 `true`：发信接口只把邮件写入队列并返回 `202`，
+真正的 SMTP 投递、重试与 Webhook 回调由 `cli/worker.php` 完成。
+**不做这一步，邮件会一直停在 `pending`。**
+
+### 方式 A：宝塔计划任务（最简单，1 分钟兜底）
+
+宝塔 → 计划任务 → 添加任务：
+
+| 项 | 填 |
+|---|---|
+| 任务类型 | Shell 脚本 |
+| 任务名称 | zc-mail-worker |
+| 执行周期 | 每 1 分钟 |
+| 脚本内容 | `cd /www/wwwroot/你的域名 && php cli/worker.php --once` |
+
+保存后点「执行」手动跑一次，日志应出现 `无待处理任务，退出`。
+
+### 方式 B：supervisor 常驻（推荐，秒级处理）
+
+服务器装了 supervisor 时：
+
+```bash
+cp /www/wwwroot/你的域名/deploy/supervisor-mail-worker.conf.example \
+   /etc/supervisor/conf.d/zc-mail-worker.conf
+vi /etc/supervisor/conf.d/zc-mail-worker.conf   # 改 command / directory 为实际路径
+
+supervisorctl reread
+supervisorctl update
+supervisorctl status zc-mail-worker
+```
+
+### 验证
+
+```bash
+cd /www/wwwroot/你的域名
+php cli/worker.php --once --verbose
+```
+
+发一封测试邮件，接口应返回 `202`；再查：
+
+```bash
+curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
+```
+
+`status` 从 `pending` 变为 `success` 即 worker 正常。
+
+> 想改回同步（不需要 worker）：在 `config/config.local.php` 加
+> `'mail' => ['queue' => ['enabled' => false]]`，然后重载 php-fpm。
+
+---
+
 ## 一键初始化脚本
 
 不想在 phpMyAdmin 里点导入，用宝塔「终端」在项目根目录跑一次：
@@ -231,6 +284,8 @@ bash /path/to/deploy/bootstrap.sh /www/wwwroot/你的域名
 | 502 / 504 | php-fpm 没起来 | 软件商店重启 PHP；看 `/www/wwwlogs/` 日志 |
 | 改了 PHP 代码没生效 | opcache | `/etc/init.d/php-fpm-82 reload` |
 | 控制台登录失败 | Key 不对 / 未建表 / 跨域 | 先看 `/health`，再看浏览器控制台报错 |
+| 发信返回 202 但日志一直 `pending` | worker 没启动 / 已退出 | 回第 11 步；`php cli/worker.php --once --verbose` 看报错 |
+| `zc_send_jobs` 不存在 | 用旧版 `schema.sql` 建的表 | 重新执行 `php cli/install.php` 补建新表 |
 
 > 若套了 Cloudflare：Bot Fight Mode / 托管质询会拦截**服务端**调用（curl 拿到 HTML 质询页而非 JSON）。
 > 对 `/api/*` 加 WAF Skip 规则，或关闭该域名的浏览器完整性检查。

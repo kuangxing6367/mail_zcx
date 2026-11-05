@@ -41,12 +41,14 @@
 | **邮件模板** | `{{变量}}` 渲染（含点号路径），HTML + 纯文本双版本，未匹配变量可追踪 |
 | **Webhook 出站** | 发信结果异步回调，HMAC-SHA256 签名（`X-ZC-Signature`），失败自动重试，投递全程留痕 |
 | **Webhook 入站** | 暴露 `/api/v1/hook/inbound` 接收外部事件，可选签名校验与二次转发 |
+| **异步队列** | 入队即返回 `202`，worker 后台投递、指数退避重试、卡死任务自动回收 |
 | **发送日志** | 收件人、主题、SMTP 响应码、错误、耗时、来源 IP、原始请求体，按状态/关键词检索 |
 | **统计报表** | 按日 / 7 天 / 30 天汇总，含按邮箱、按小时的分布 |
 | **Web 控制台** | 纯静态单文件，无框架无 CDN，覆盖仪表盘 / 发信 / 邮箱 / 模板 / Webhook / 日志 / 密钥 |
 
-> **并发模型**：发信是同步阻塞的（一个请求等完整 SMTP 会话），Webhook 的「异步」仍会占用 FPM worker。
-> 两层超时、非 FPM 退化行为与缓解手段见 [设计说明 · 并发与阻塞模型](https://mail.zgric.top/architecture#并发与阻塞模型)。
+> **发信模型**：默认入队异步 —— `POST /api/v1/send` 立即返回 `202`，SMTP 投递、重试与回调
+> 由 `cli/worker.php` 后台执行。也可在配置里关闭队列改回同步。
+> 状态机、重试语义与超时见 [设计说明 · 发信执行模型](https://mail.zgric.top/architecture#发信执行模型)。
 
 ---
 
@@ -162,7 +164,23 @@ location / {
 > 这会**拦截 API 返回的 404 状态码并替换成 HTML**。API 站点请注释掉该行，
 > 否则「接口不存在」会返回 HTML 而不是 JSON。
 
-### 5. 本地起服务（调试用）
+### 5. 启动发信 worker（默认队列必需）
+
+`mail.queue.enabled` 默认 `true`：`/api/v1/send` 把邮件写入 `zc_send_jobs` 后立即返回 `202`，
+必须由 worker 后台投递：
+
+```bash
+# 常驻（推荐用 supervisor 守护，配置见 deploy/supervisor-mail-worker.conf.example）
+php cli/worker.php
+
+# 或单次拉取（cron / 宝塔计划任务每分钟执行）
+php cli/worker.php --once
+```
+
+不启动 worker，邮件会一直停在 `pending`。想改回同步：在 `config.local.php` 里设
+`'mail' => ['queue' => ['enabled' => false]]`。
+
+### 6. 本地起服务（调试用）
 
 ```bash
 php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extension=curl \
@@ -211,6 +229,15 @@ curl -X POST $BASE/api/v1/send \
 ```
 
 不传 `mailbox_id` 时，系统自动选择**发件量最少**的可用邮箱。
+
+默认队列模式下返回 **HTTP 202**，`data.status` 为 `queued`，只表示已入队：
+
+```json
+{ "code": 0, "msg": "已加入发送队列...", "data": { "log_id": 12, "status": "queued", "check_url": "/api/v1/logs/12" } }
+```
+
+投递结果通过 `GET /api/v1/logs/12` 查询（`pending` → `success` / `failed`），
+或配置 `callback_url` / 全局 Webhook 接收终态。关闭队列则退回同步返回结果。
 
 ### 用模板发送
 

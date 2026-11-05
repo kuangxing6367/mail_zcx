@@ -1,0 +1,20 @@
+; =============================================================
+; ZC Mail Service - 发信队列 Worker 守护配置（Supervisor）
+; 用法：
+;   1. 复制到 /etc/supervisor/conf.d/zc-mail-worker.conf
+;   2. 修改 command/directory 中的路径为你的部署目录
+;   3. supervisorctl reread && supervisorctl update && supervisorctl start zc-mail-worker
+; =============================================================
+[program:zc-mail-worker]
+command=php /www/wwwroot/mail.zgric.top/cli/worker.php
+directory=/www/wwwroot/mail.zgric.top
+autostart=true
+autorestart=true
+startsecs=3
+startretries=3
+stopwaitsecs=30
+user=www
+numprocs=1
+process_name=%(program_name)s_%(process_num)02d
+stderr_logfile=/www/wwwroot/mail.zgric.top/storage/logs/worker.err.log
+stdout_logfile=/www/wwwroot/mail.zgric.top/storage/logs/worker.out.log

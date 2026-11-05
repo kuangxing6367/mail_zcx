@@ -175,3 +175,29 @@ SELECT 'verify_code', '验证码通知', '【ZC】您的验证码是 {{code}}',
        '您的验证码为：{{code}}，有效期 {{expire}} 分钟。',
        '{"code":"验证码","expire":"有效期(分钟)"}', 1
 WHERE NOT EXISTS (SELECT 1 FROM `zc_templates` WHERE `code` = 'verify_code');
+
+-- -------------------------------------------------------------
+-- 8. 发信队列作业：根治同步阻塞，API 只写库立即返回 202，
+--    cli/worker.php 后台认领并执行 SMTP 投递（含重试）
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `zc_send_jobs` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `log_id`          BIGINT UNSIGNED NOT NULL                COMMENT '关联的发送日志 ID',
+  `mailbox_id`      INT UNSIGNED     NOT NULL DEFAULT 0     COMMENT '发件邮箱 ID（prepare 阶段已选定）',
+  `status`          ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
+  `payload`         MEDIUMTEXT       NOT NULL                COMMENT '作业载荷 JSON：MIME 原文/收件人/上下文/原始 input',
+  `attempts`        TINYINT UNSIGNED NOT NULL DEFAULT 0     COMMENT '已投递次数',
+  `max_attempts`    TINYINT UNSIGNED NOT NULL DEFAULT 3     COMMENT '最大投递次数（含首次）',
+  `last_error`      TEXT,
+  `smtp_code`       VARCHAR(16)      NOT NULL DEFAULT '',
+  `smtp_message`    TEXT,
+  `duration_ms`     INT              NOT NULL DEFAULT 0,
+  `next_attempt_at` DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '可重试的最早时间',
+  `reserved_at`     DATETIME                  DEFAULT NULL   COMMENT '被 worker 认领时间',
+  `reserved_by`     VARCHAR(64)      NOT NULL DEFAULT ''    COMMENT 'worker 标识（host:pid）',
+  `created_at`      DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `finished_at`     DATETIME                  DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_status_next` (`status`, `next_attempt_at`),
+  KEY `idx_log` (`log_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发信队列作业';

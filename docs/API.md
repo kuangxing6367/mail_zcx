@@ -47,7 +47,34 @@
 | `callback_url` / `webhook` | string | | 本次发送结果回调地址（按次自定义） |
 | `callback_secret` | string | | 本次回调的签名密钥 |
 
-**成功响应**
+**两种响应模式**
+
+取决于服务端配置 `mail.queue.enabled`：
+
+| 模式 | HTTP | `data.status` | 含义 |
+|---|---|---|---|
+| **异步队列**（默认） | **202** | `queued` | 已落库入队，SMTP 投递由后台 worker 执行 |
+| 同步（队列关闭） | 200 | `success` / `failed` | 请求内完成投递，直接返回最终结果 |
+
+> 异步模式下 `msg` 会给出 `log_id` 与查询地址。投递失败仍会写入 `mail_logs`，
+> 不会因为入队成功而丢失；也可通过 `callback_url` 或全局 Webhook 接收终态。
+
+**异步响应（HTTP 202，默认模式）**
+
+```json
+{
+  "code": 0,
+  "msg": "已加入发送队列，请通过 GET /api/v1/logs/12 查询结果或等待 Webhook 回调",
+  "data": {
+    "log_id": 12,
+    "request_id": "5e7cffd91c75f932",
+    "status": "queued",
+    "check_url": "/api/v1/logs/12"
+  }
+}
+```
+
+**同步成功响应（HTTP 200，队列关闭时）**
 
 ```json
 {
@@ -71,7 +98,7 @@
 }
 ```
 
-**失败响应**（HTTP 仍为 200，业务码非 0）
+**同步失败响应**（HTTP 仍为 200，业务码非 0）
 
 ```json
 {
@@ -82,6 +109,14 @@
 ```
 
 `missing_vars` 会列出模板中未被赋值的变量名，便于排查。
+
+**查询异步发送结果**
+
+```bash
+curl -H "X-API-Key: $KEY" $BASE/api/v1/logs/12
+```
+
+`data.status` 为 `pending`（排队/投递中）、`success` 或 `failed`；`smtp_code`、`error`、`duration_ms` 在投递完成后写入。
 
 ---
 

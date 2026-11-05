@@ -13,6 +13,10 @@ use InvalidArgumentException;
 
 /**
  * 发信编排：选箱 → 渲染 → 组包 → SMTP 投递 → 记日志 → 触发 Webhook
+ *
+ * 两种执行模式（由 mail.queue.enabled 决定）：
+ *   同步：send() = prepare() + deliver() + finalize()，单请求内完成，向后兼容
+ *   异步：prepare() 落库 pending 并返回作业载荷，cli/worker.php 调 deliver() + finalize()
  */
 class Mailer
 {
@@ -30,10 +34,204 @@ class Mailer
     }
 
     /**
-     * @param array $input   调用参数
-     * @param array $context 上下文（source_ip / user_agent / request_id）
+     * 同步发送（队列关闭时的降级路径，保持旧行为）
      */
     public function send(array $input, array $context = []): array
+    {
+        $payload = $this->prepare($input, $context);
+        $result  = $this->deliver($payload);
+        $this->finalize($payload, $result);
+
+        return [
+            'log_id'       => $payload['log_id'],
+            'request_id'   => $payload['request_id'],
+            'status'       => $result['status'],
+            'mailbox_id'   => $payload['mailbox_id'],
+            'from'         => $payload['from_email'],
+            'to'           => $payload['to'],
+            'cc'           => $payload['cc'],
+            'subject'      => $payload['subject'],
+            'smtp_code'    => $result['smtp_code'],
+            'smtp_message' => $result['smtp_message'],
+            'error'        => $result['error'],
+            'duration_ms'  => $result['duration_ms'],
+            'missing_vars' => $payload['missing_vars'],
+        ];
+    }
+
+    /**
+     * 阶段一：解析 / 渲染 / 选箱 / 组 MIME / 落库 pending，返回作业载荷。
+     * 队列模式下在请求内同步完成，耗时极短（无网络 IO）。
+     */
+    public function prepare(array $input, array $context = []): array
+    {
+        [$to, $cc, $bcc, $subject, $html, $text, $missing, $mailbox, $mime, $fromName] =
+            $this->buildMessage($input);
+
+        $fromEmail = (string) $mailbox['email'];
+        $message   = $mime->build();
+        $recipients = $mime->allRecipients();
+
+        $requestId = (string) ($context['request_id'] ?? RequestContext::get('request_id', ''));
+
+        // 落库前剔除敏感参数，避免密钥写进日志
+        $payloadForLog = $input;
+        unset($payloadForLog['api_key'], $payloadForLog['callback_secret'], $payloadForLog['_method']);
+
+        $logId = $this->logs->create([
+            'request_id'    => $requestId,
+            'mailbox_id'    => (int) $mailbox['id'],
+            'from_email'    => $fromEmail,
+            'to_email'      => $this->joinEmails($to),
+            'cc_email'      => $this->joinEmails($cc),
+            'bcc_email'     => $this->joinEmails($bcc),
+            'subject'       => mb_substr($subject, 0, 500),
+            'template_code' => trim((string) ($input['template'] ?? $input['template_code'] ?? '')),
+            'status'        => 'pending',
+            'source_ip'     => (string) ($context['source_ip'] ?? ''),
+            'user_agent'    => mb_substr((string) ($context['user_agent'] ?? ''), 0, 255),
+            'payload'       => Config::get('mail.log_payload', true)
+                ? mb_substr(json_encode($payloadForLog, JSON_UNESCAPED_UNICODE), 0, 65535)
+                : null,
+        ]);
+
+        return [
+            'log_id'       => $logId,
+            'request_id'   => $requestId,
+            'mailbox_id'   => (int) $mailbox['id'],
+            'from_email'   => $fromEmail,
+            'from_name'    => $fromName,
+            'recipients'   => $recipients,
+            'message'      => $message,
+            'subject'      => $subject,
+            'to'           => $this->joinEmails($to),
+            'cc'           => $this->joinEmails($cc),
+            'bcc'          => $this->joinEmails($bcc),
+            'missing_vars' => $missing,
+            'input'        => $input,
+            'context'      => $context,
+        ];
+    }
+
+    /**
+     * 阶段二：执行 SMTP 投递（worker 或同步模式调用）
+     * 网络异常内部捕获并转为 failed 结果，不向外抛；邮箱缺失等前置错误会抛。
+     */
+    public function deliver(array $payload): array
+    {
+        $mailboxId = (int) $payload['mailbox_id'];
+        $mailbox   = $this->mailboxes->get($mailboxId);
+        if (!$mailbox) {
+            throw new \RuntimeException('发信邮箱不存在或已删除: #' . $mailboxId);
+        }
+        $cred = $this->mailboxes->credentials($mailbox);
+
+        $start       = microtime(true);
+        $client      = null;
+        $status      = 'failed';
+        $smtpCode    = '';
+        $smtpMessage = '';
+        $error       = '';
+
+        try {
+            $client = new SmtpClient(
+                $cred['host'],
+                $cred['port'],
+                $cred['secure'],
+                (int) Config::get('mail.timeout', 15),
+                (int) Config::get('mail.total_timeout', 30)
+            );
+            $client->connect();
+            $client->authenticate($cred['user'], $cred['pass']);
+            $client->send((string) $payload['from_email'], (array) $payload['recipients'], (string) $payload['message']);
+            $smtpCode    = (string) $client->lastCode;
+            $smtpMessage = (string) $client->lastResponse;
+            $client->quit();
+            $status = 'success';
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+            if ($client) {
+                $smtpCode    = (string) $client->lastCode;
+                $smtpMessage = (string) $client->lastResponse;
+                $client->close();
+            }
+            Logger::warning('发信失败: ' . $error, [
+                'mailbox' => (string) ($payload['from_email'] ?? ''),
+                'to'      => $payload['recipients'] ?? [],
+            ]);
+        }
+
+        return [
+            'status'       => $status,
+            'smtp_code'    => $smtpCode,
+            'smtp_message' => $smtpMessage,
+            'error'        => $error,
+            'duration_ms'  => (int) round((microtime(true) - $start) * 1000),
+        ];
+    }
+
+    /**
+     * 阶段三：回写日志、邮箱计数、触发 Webhook（同步 / 队列共用）
+     */
+    public function finalize(array $payload, array $result): void
+    {
+        $logId     = (int) $payload['log_id'];
+        $mailboxId = (int) $payload['mailbox_id'];
+        $status    = (string) ($result['status'] ?? 'failed');
+
+        $this->logs->update($logId, [
+            'status'       => $status,
+            'smtp_code'    => mb_substr((string) ($result['smtp_code'] ?? ''), 0, 16),
+            'smtp_message' => $result['smtp_message'] ?? '',
+            'error'        => ($result['error'] ?? '') !== '' ? mb_substr((string) $result['error'], 0, 2000) : null,
+            'duration_ms'  => (int) ($result['duration_ms'] ?? 0),
+            'sent_at'      => date('Y-m-d H:i:s'),
+        ]);
+
+        if ($status === 'success') {
+            $this->mailboxes->recordSuccess($mailboxId);
+        } else {
+            $this->mailboxes->recordFailure($mailboxId, (string) ($result['error'] ?? ''));
+        }
+
+        // 状态回调
+        $input          = (array) ($payload['input'] ?? []);
+        $context        = (array) ($payload['context'] ?? []);
+        $callbackUrl    = trim((string) ($input['callback_url'] ?? $input['webhook'] ?? ''));
+        $callbackSecret = trim((string) ($input['callback_secret'] ?? ''));
+
+        $webhookPayload = [
+            'log_id'       => $logId,
+            'request_id'   => (string) ($payload['request_id'] ?? ($context['request_id'] ?? '')),
+            'status'       => $status,
+            'mailbox_id'   => $mailboxId,
+            'from'         => (string) ($payload['from_email'] ?? ''),
+            'to'           => (string) ($payload['to'] ?? ''),
+            'cc'           => (string) ($payload['cc'] ?? ''),
+            'subject'      => (string) ($payload['subject'] ?? ''),
+            'smtp_code'    => $result['smtp_code'] ?? '',
+            'smtp_message' => $result['smtp_message'] ?? '',
+            'error'        => $result['error'] ?? '',
+            'duration_ms'  => (int) ($result['duration_ms'] ?? 0),
+            'missing_vars' => $payload['missing_vars'] ?? [],
+        ];
+
+        $this->webhooks->dispatchAsync(
+            $status,
+            $webhookPayload,
+            $callbackUrl !== '' ? $callbackUrl : null,
+            $logId,
+            $callbackSecret
+        );
+    }
+
+    /**
+     * 解析 / 渲染 / 选箱 / 组 MIME
+     *
+     * @return array{0:array,1:array,2:array,3:string,4:string,5:string,6:array,7:array,8:MimeBuilder,9:string}
+     *         0..2 to/cc/bcc  3..5 subject/html/text  6 missing  7 mailbox  8 mime  9 fromName
+     */
+    private function buildMessage(array $input): array
     {
         // ---------- 1. 收件人 ----------
         $to  = $this->parseAddresses($input['to']  ?? null);
@@ -83,7 +281,8 @@ class Mailer
         );
 
         $fromEmail = (string) $mailbox['email'];
-        $fromName  = trim((string) ($input['from_name'] ?? '')) ?: (string) $mailbox['display_name'] ?: (string) Config::get('mail.default_from_name', '');
+        $fromName  = trim((string) ($input['from_name'] ?? ''))
+            ?: ((string) $mailbox['display_name'] ?: (string) Config::get('mail.default_from_name', ''));
 
         // ---------- 4. 组装 MIME ----------
         $mime = new MimeBuilder();
@@ -111,107 +310,7 @@ class Mailer
         }
         $this->attachFiles($mime, $input['attachments'] ?? []);
 
-        $message = $mime->build();
-        $recipients = $mime->allRecipients();
-
-        // ---------- 5. 落库 pending ----------
-        $requestId = (string) ($context['request_id'] ?? RequestContext::get('request_id', ''));
-
-        // 落库前剔除敏感参数，避免密钥写进日志
-        $payloadForLog = $input;
-        unset($payloadForLog['api_key'], $payloadForLog['callback_secret'], $payloadForLog['_method']);
-
-        $logId = $this->logs->create([
-            'request_id'    => $requestId,
-            'mailbox_id'    => (int) $mailbox['id'],
-            'from_email'    => $fromEmail,
-            'to_email'      => $this->joinEmails($to),
-            'cc_email'      => $this->joinEmails($cc),
-            'bcc_email'     => $this->joinEmails($bcc),
-            'subject'       => mb_substr($subject, 0, 500),
-            'template_code' => $templateCode,
-            'status'        => 'pending',
-            'source_ip'     => (string) ($context['source_ip'] ?? ''),
-            'user_agent'    => mb_substr((string) ($context['user_agent'] ?? ''), 0, 255),
-            'payload'       => Config::get('mail.log_payload', true)
-                ? mb_substr(json_encode($payloadForLog, JSON_UNESCAPED_UNICODE), 0, 65535)
-                : null,
-        ]);
-
-        // ---------- 6. SMTP 投递 ----------
-        $cred  = $this->mailboxes->credentials($mailbox);
-        $start = microtime(true);
-        $client = null;
-        $status = 'failed';
-        $smtpCode = '';
-        $smtpMessage = '';
-        $error = '';
-
-        try {
-            $client = new SmtpClient(
-                $cred['host'],
-                $cred['port'],
-                $cred['secure'],
-                (int) Config::get('mail.timeout', 15),
-                (int) Config::get('mail.total_timeout', 30)
-            );
-            $client->connect();
-            $client->authenticate($cred['user'], $cred['pass']);
-            $client->send($fromEmail, $recipients, $message);
-            $smtpCode    = (string) $client->lastCode;
-            $smtpMessage = (string) $client->lastResponse;
-            $client->quit();
-            $status = 'success';
-        } catch (\Throwable $e) {
-            $error = $e->getMessage();
-            if ($client) {
-                $smtpCode    = (string) $client->lastCode;
-                $smtpMessage = (string) $client->lastResponse;
-                $client->close();
-            }
-            Logger::warning('发信失败: ' . $error, ['mailbox' => $fromEmail, 'to' => $recipients]);
-        }
-
-        $duration = (int) round((microtime(true) - $start) * 1000);
-
-        // ---------- 7. 回写日志与计数 ----------
-        $this->logs->update($logId, [
-            'status'       => $status,
-            'smtp_code'    => mb_substr($smtpCode, 0, 16),
-            'smtp_message' => $smtpMessage,
-            'error'        => $error !== '' ? mb_substr($error, 0, 2000) : null,
-            'duration_ms'  => $duration,
-            'sent_at'      => date('Y-m-d H:i:s'),
-        ]);
-
-        if ($status === 'success') {
-            $this->mailboxes->recordSuccess((int) $mailbox['id']);
-        } else {
-            $this->mailboxes->recordFailure((int) $mailbox['id'], $error);
-        }
-
-        $result = [
-            'log_id'       => $logId,
-            'request_id'   => $requestId,
-            'status'       => $status,
-            'mailbox_id'   => (int) $mailbox['id'],
-            'from'         => $fromEmail,
-            'to'           => $this->joinEmails($to),
-            'cc'           => $this->joinEmails($cc),
-            'subject'      => $subject,
-            'smtp_code'    => $smtpCode,
-            'smtp_message' => $smtpMessage,
-            'error'        => $error,
-            'duration_ms'  => $duration,
-            'missing_vars' => $missing,
-        ];
-
-        // ---------- 8. 触发 Webhook ----------
-        $callbackUrl    = trim((string) ($input['callback_url'] ?? $input['webhook'] ?? ''));
-        $callbackSecret = trim((string) ($input['callback_secret'] ?? ''));
-        $this->webhooks->dispatchAsync($status, $result, $callbackUrl !== '' ? $callbackUrl : null, $logId, $callbackSecret);
-
-        return $result;
+        return [$to, $cc, $bcc, $subject, $html, $text, $missing, $mailbox, $mime, $fromName];
     }
 
     /**

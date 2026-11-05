@@ -90,6 +90,7 @@ php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extensi
 7. `curl https://你的域名/health` 验证
 8. 打开 `https://你的域名/zc-console/`，粘贴安装时输出的默认 API Key
 9. 立刻在控制台「API 密钥」页轮换默认 Key
+10. **启动发信 worker**（默认开启队列，不启动邮件会停在 `pending`，见下文「异步发信与 worker」）
 
 ## 手工部署（nginx）
 
@@ -247,6 +248,80 @@ curl -X POST https://your-domain.com/api/v1/send \
 ```
 
 不传 `mailbox_id` 时自动选择累计发件量最少的可用邮箱。
+
+> 默认队列模式下，上面的请求返回 **HTTP 202 + `status: "queued"`**，只表示已入队，不代表已投递。
+> 投递结果见下节。
+
+## 异步发信与 worker（默认开启）
+
+`config/config.php` 的 `mail.queue.enabled` 默认 `true`：`/api/v1/send` 只做解析与落库，
+立即返回 `202` + `{"status":"queued","log_id":...}`，SMTP 投递交给后台 worker。
+
+**只开队列不跑 worker，邮件会一直停在 `pending`。** 部署后必须启动 worker，二选一：
+
+### 方式 A：supervisor 常驻（推荐）
+
+```bash
+cp deploy/supervisor-mail-worker.conf.example /etc/supervisor/conf.d/zc-mail-worker.conf
+vi /etc/supervisor/conf.d/zc-mail-worker.conf   # 改 command / directory 为你的路径
+
+supervisorctl reread
+supervisorctl update
+supervisorctl status zc-mail-worker
+```
+
+### 方式 B：宝塔计划任务（每分钟拉一次，兜底）
+
+宝塔 → 计划任务 → 添加：
+
+- 类型：Shell 脚本
+- 执行周期：每 1 分钟
+- 脚本内容：
+
+```bash
+cd /www/wwwroot/你的站点 && php cli/worker.php --once
+```
+
+`--once` 处理完当前积压就退出，适合没有 supervisor 的环境。缺点是每分钟才拉一次，
+单封邮件最多延迟约 60 秒。
+
+### 验证 worker 正常
+
+```bash
+# 手动跑一轮，看是否有积压
+php cli/worker.php --once --verbose
+
+# 发一封测试邮件（应返回 202 + status=queued）
+curl -X POST https://你的域名/api/v1/send \
+  -H "X-API-Key: zc_xxx" -H "Content-Type: application/json" \
+  -d '{"to":"you@example.com","subject":"队列测试","text":"hello"}'
+
+# 查结果：pending → success / failed
+curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
+```
+
+失败按 `retry_base * 2^(n-1)` 退避重试，默认最多 3 次（含首次）。
+
+### 想改回同步
+
+在 `config.local.php` 覆盖：
+
+```php
+return ['mail' => ['queue' => ['enabled' => false]]];
+```
+
+改回同步后 `/api/v1/send` 直接返回投递结果，不需要 worker；代价是请求会被 SMTP 会话阻塞。
+
+### 队列配置
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `mail.queue.enabled` | `true` | 队列开关 |
+| `mail.queue.max_attempts` | `3` | 最多投递次数（含首次） |
+| `mail.queue.batch` | `10` | worker 单次认领数 |
+| `mail.queue.idle_sleep` | `2` | 队列空时休眠秒数 |
+| `mail.queue.stuck_timeout` | `300` | 认领超时回收（worker 崩溃兜底） |
+| `mail.queue.retry_base` | `30` | 重试退避基数（秒） |
 
 ## 本地联调（不需要真实 SMTP 账号）
 

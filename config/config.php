@@ -56,6 +56,19 @@ return [
         'max_attachment_mb'  => 10,           // 单封邮件附件总大小上限(MB)
         'smtp_keepalive'     => false,
         'log_payload'        => true,         // 是否把原始请求体落库
+
+        // ---- 异步发送队列（根治同步阻塞）----
+        // enabled=true:  /api/v1/send 立即返回 202，发信由 cli/worker.php 后台执行
+        //   ⚠ 必须常驻运行 worker，否则邮件会堆积在 pending 状态
+        // enabled=false: 走原同步阻塞逻辑（单请求内完成 SMTP 投递，向后兼容）
+        'queue' => [
+            'enabled'       => true,          // true=队列异步 / false=同步
+            'max_attempts'  => 3,             // 单封最多投递次数（含首次）
+            'batch'         => 10,            // worker 单次认领任务数
+            'idle_sleep'    => 2,             // 队列空时 worker 休眠秒数
+            'stuck_timeout' => 300,           // processing 超过此秒数视为 worker 崩溃，自动回收
+            'retry_base'    => 30,            // 重试退避基数（秒）：第 n 次重试等待 retry_base * 2^(n-1)
+        ],
     ],
 
     'webhook' => [
