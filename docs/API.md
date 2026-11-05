@@ -155,7 +155,9 @@ curl -H "X-API-Key: $KEY" $BASE/api/v1/logs/12
 
 ### `DELETE /mailboxes/{id}` — 删除
 
-### `POST /mailboxes/{id}/test` · `GET /mailboxes/{id}/test` — 测试连通性
+### `POST /mailboxes/{id}/test` — 测试连通性
+
+> 只接受 POST。早期版本允许 `GET` 触发，属于「GET 写操作」，已移除（`GET` 返回 405）。
 
 返回完整 SMTP 会话记录，便于定位问题：
 
@@ -262,7 +264,9 @@ Content-Type: application/json
 
 ### 4.2 入站接收
 
-#### `POST /api/v1/hook/inbound` · `GET /api/v1/hook/inbound`（**免 API Key**）
+#### `POST /api/v1/hook/inbound`（**免 API Key**）
+
+> 只接受 POST；`GET` 返回 405，避免被浏览器预取或被动触发写入。
 
 | 参数 | 说明 |
 |---|---|
@@ -290,7 +294,10 @@ Content-Type: application/json
 | `keyword` | 收件人或主题模糊搜索 |
 | `start` / `end` | 时间范围，`YYYY-MM-DD HH:MM:SS` |
 
-### `GET /logs/{id}` — 单条详情（含 `payload` 原始请求体）
+### `GET /logs/{id}` — 单条详情
+
+默认不返回 `payload`（原始请求体，可能含验证码/收件人明细）。
+需要时加 `?include_payload=1`，且服务端 `log.return_payload` 必须为 `true`。
 
 ### `GET /logs/stats?range=today|7d|30d|all`
 
@@ -333,7 +340,8 @@ Content-Type: application/json
 | `webhooks` | `/webhooks*`、`/hook/events` |
 | `keys` | `/keys*` |
 
-越权返回 `401 当前 API Key 缺少权限: <scope>`。
+权限不足返回 **403** `当前 API Key 缺少权限: <scope>`（早期版本误用 401，已修正）。
+鉴权失败（Key 无效/缺失）才是 401。
 数据库只保存 `sha256(api_key)`；`api_key` 字段仅存脱敏串，**丢失后无法找回，只能轮换**。
 
 ---

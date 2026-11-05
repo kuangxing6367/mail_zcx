@@ -41,8 +41,12 @@ class MailboxService
         $params = [];
 
         if ($keyword !== '') {
-            $where[] = '(email LIKE :kw OR name LIKE :kw OR smtp_host LIKE :kw)';
-            $params['kw'] = '%' . $keyword . '%';
+            // 原生预处理下同一命名参数不能重复，三个字段用三个名字
+            $where[] = '(email LIKE :kw1 OR name LIKE :kw2 OR smtp_host LIKE :kw3)';
+            $kw = '%' . $keyword . '%';
+            $params['kw1'] = $kw;
+            $params['kw2'] = $kw;
+            $params['kw3'] = $kw;
         }
         if ($status !== null) {
             $where[] = 'status = :status';

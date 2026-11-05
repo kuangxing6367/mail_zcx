@@ -53,6 +53,11 @@ return [
         // 秘密入口前缀：非空时 API 挂载点变为 /<前缀>/api/v1，直接访问 /api/v1 返回 404
         // 例：设为 'x9m2kq' 后，真实接口为 https://域名/x9m2kq/api/v1/...；控制台需同步设置 API_ENTRY
         'api_entry'       => '',
+        // Web Cron 令牌：无 CLI 的虚拟主机靠「访问 URL」型计划任务驱动队列（public/zc-cron.php）。
+        // 留空 = Web Cron 与网页安装器均禁用。建议 openssl rand -hex 16
+        'cron_token'      => '',
+        // 网页安装器令牌（public/zc-install.php），安装完成后入口自动失效
+        'setup_token'     => '',
     ],
 
     'mail' => [
@@ -86,6 +91,11 @@ return [
             'idle_sleep'    => 2,             // 队列空时 worker 休眠秒数
             'stuck_timeout' => 300,           // processing 超过此秒数视为 worker 崩溃，自动回收
             'retry_base'    => 30,            // 重试退避基数（秒）：第 n 次重试等待 retry_base * 2^(n-1)
+            // ---- 无 CLI 环境（虚拟主机）----
+            // Web Cron（public/zc-cron.php）单次处理的邮件数：共享主机通常 30s 超时，
+            // 按单封 1~3s 估算，5 封足够安全；调大可处理更多，但别超过脚本时限。
+            'web_cron_batch'      => 5,
+            'web_cron_time_limit' => 25,      // Web Cron 目标执行时限（秒）
         ],
     ],
 

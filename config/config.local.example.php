@@ -36,6 +36,11 @@ return [
         // 'api_entry'    => '',     // 秘密入口前缀，详见 README「秘密入口」
         // 'inbound_secret' => '',   // 入站 Webhook 签名密钥；留空 = /hook/inbound 关闭
         // 'cors_origins'   => 'https://console.example.com',
+        // ---- 没有 SSH / CLI 的虚拟主机（梦奈主机这类面板）需要这两项 ----
+        // 网页安装器口令（public/zc-install.php）。装完就删掉该文件。
+        // 'setup_token'  => 'openssl rand -hex 16 生成',
+        // Web Cron 口令（public/zc-cron.php?token=...），给「访问 URL」型计划任务用
+        // 'cron_token'   => 'openssl rand -hex 16 生成',
     ],
     'mail' => [
         'selection'     => 'least_sent',
@@ -45,6 +50,15 @@ return [
         // 附件走服务端路径（默认关闭）。开启后必须限定目录，否则可外发任意文件
         // 'allow_path_attachment' => true,
         // 'attachment_roots'      => ['/www/wwwroot/mail/storage/uploads'],
+        // ---- 队列 ----
+        // 默认 true：接口返回 202，必须有人跑 worker（CLI 常驻 或 Web Cron）。
+        // 虚拟主机没有 CLI 时二选一：
+        //   a) 'enabled' => false  完全退回同步发信（和早期版本一致，最简单）
+        //   b) 保持 true + 计划任务访问 /zc-cron.php?token=xxx
+        // 'queue' => [
+        //     'enabled'      => false,
+        //     'web_cron_batch' => 5,   // Web Cron 单次最多投递几封
+        // ],
     ],
     // SMTP 入站：让只会说 SMTP 的老系统直接投递，不需要改成 HTTP 调用
     // 开启前必须：① nginx stream 把 25/587 转到 127.0.0.1:2525  ② 常驻跑 cli/worker.php

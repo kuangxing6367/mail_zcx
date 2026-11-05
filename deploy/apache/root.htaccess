@@ -1,0 +1,50 @@
+# =============================================================
+#  Apache / LiteSpeed —— 站点根目录被迫指向「项目根」时使用
+#
+#  多数虚拟主机（梦奈主机这类面板）只能把站点根设成 public_html，
+#  不允许指到 public/ 子目录。这时用本文件：
+#    1) 把整个项目上传到站点根（public_html/）
+#    2) 把本文件改名为 .htaccess 放到站点根
+#    3) 浏览器访问 https://域名/zc-console/
+#
+#  更安全的做法仍是「站点根指向 public/」，本文件是退路。
+# =============================================================
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # 源码 / 凭据 / 日志一律禁止外部访问
+    RewriteRule ^(app|config|cli|sql|storage|docs|deploy|\.git|\.github)(/|$) - [F,L]
+
+    # 其余请求内部转发到 public/（浏览器地址栏不变）
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# 兜底：即使 rewrite 未生效，也不让 Apache 直接把敏感文件当文本吐出来
+<FilesMatch "\.(sql|log|lock|md|example\.php)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>

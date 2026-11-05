@@ -41,8 +41,9 @@
 | **邮件模板** | `{{变量}}` 渲染（含点号路径），HTML + 纯文本双版本，未匹配变量可追踪 |
 | **Webhook 出站** | 发信结果异步回调，HMAC-SHA256 签名（`X-ZC-Signature`），失败自动重试，投递全程留痕 |
 | **Webhook 入站** | 暴露 `/api/v1/hook/inbound` 接收外部事件，可选签名校验与二次转发 |
-| **异步队列** | 入队即返回 `202`，worker 后台投递、指数退避重试、卡死任务自动回收 |
+| **异步队列** | 入队即返回 `202`，worker 后台投递、指数退避重试、卡死任务自动回收；没有 CLI 的虚拟主机可用 URL 计划任务（`zc-cron.php`）驱动 |
 | **SMTP 入站** | 内置标准 SMTP 服务（AUTH PLAIN/LOGIN、STARTTLS、PROXY protocol），老系统直接填服务器地址即可发信，走同一条投递链路 |
+| **零 CLI 安装** | 有 SSH 用 `cli/install.php`；没有就用网页安装器 `/zc-install.php`（一次性口令 + 装完自动失效） |
 | **发送日志** | 收件人、主题、SMTP 响应码、错误、耗时、来源 IP、原始请求体，按状态/关键词检索 |
 | **统计报表** | 按日 / 7 天 / 30 天汇总，含按邮箱、按小时的分布 |
 | **Web 控制台** | 纯静态单文件，无框架无 CDN，覆盖仪表盘 / 发信 / 邮箱 / 模板 / Webhook / 日志 / 密钥 |
@@ -107,6 +108,7 @@ storage/                  # 日志 / 证书 / 限流缓存
 | 部署方式 | 说明 |
 |---|---|
 | **宝塔面板（推荐）** | [文档站 · 宝塔图形化部署](https://mail.zgric.top/deploy-baota)，全程点击 + `deploy/bootstrap.sh` 一键初始化 |
+| **虚拟主机（无 SSH）** | [文档站 · 虚拟主机部署](https://mail.zgric.top/deploy-shared-hosting)：网页安装器 + 同步发信或 URL 计划任务 |
 | 纯 nginx 手工 | 本文下面第 4 步 + `deploy/nginx-mail-zgric.top.conf.example` |
 | 本地预览 | 项目根执行 `php -S 127.0.0.1:8000 -t public public/index.php`，打开 `http://127.0.0.1:8000/zc-console/` |
 
@@ -182,6 +184,10 @@ php cli/worker.php --once
 
 不启动 worker，邮件会一直停在 `pending`。想改回同步：在 `config.local.php` 里设
 `'mail' => ['queue' => ['enabled' => false]]`。
+
+没有 SSH / CLI 的虚拟主机二选一：改成同步；或配「访问 URL」型计划任务每分钟请求
+`https://你的域名/zc-cron.php?token=你的cron_token`（需先在配置里设 `security.cron_token`），
+详见[虚拟主机部署](https://mail.zgric.top/deploy-shared-hosting)。
 
 ### 6. 可选：用 25 端口收信（SMTP 入站）
 

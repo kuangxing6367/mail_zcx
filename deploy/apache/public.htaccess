@@ -1,0 +1,33 @@
+# =============================================================
+#  Apache / LiteSpeed 伪静态（站点根目录 = 项目的 public/）
+#  用法：把本文件改名为 public/.htaccess 上传
+#  子目录部署（https://域名/mail/）时，把 RewriteBase 改成 /mail/
+# =============================================================
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # 已存在的文件/目录直接返回（静态资源、zc-console/ 目录）
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# 不允许下载隐藏文件（.htaccess、.env、.git 等）
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header always set X-Robots-Tag "noindex, nofollow"
+</IfModule>

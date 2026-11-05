@@ -30,6 +30,7 @@ export default defineConfig({
     nav: [
       { text: '快速开始', link: '/guide' },
       { text: '宝塔部署', link: '/deploy-baota' },
+      { text: '虚拟主机', link: '/deploy-shared-hosting' },
       { text: 'SMTP 入站', link: '/smtp-in' },
       { text: 'API', link: '/api' },
       { text: '设计', link: '/architecture' },
@@ -42,6 +43,7 @@ export default defineConfig({
         items: [
           { text: '快速开始', link: '/guide' },
           { text: '宝塔面板部署', link: '/deploy-baota' },
+          { text: '虚拟主机部署（无 SSH）', link: '/deploy-shared-hosting' },
           { text: 'SMTP 入站（25 端口）', link: '/smtp-in' },
         ],
       },

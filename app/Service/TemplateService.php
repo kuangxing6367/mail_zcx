@@ -27,8 +27,10 @@ class TemplateService
         $params = [];
 
         if ($keyword !== '') {
-            $where[] = '(code LIKE :kw OR name LIKE :kw)';
-            $params['kw'] = '%' . $keyword . '%';
+            $where[] = '(code LIKE :kw1 OR name LIKE :kw2)';
+            $kw = '%' . $keyword . '%';
+            $params['kw1'] = $kw;
+            $params['kw2'] = $kw;
         }
         $whereSql = implode(' AND ', $where);
 

@@ -60,7 +60,14 @@ class Router
     {
         $allowedMethods = [];
 
-        foreach ($this->routes as $route) {
+        // 静态段优先于占位符：否则 POST /templates/preview 会被先注册的
+        // /templates/{id} 抢占，把 "preview" 当成 id 传给 update()。
+        // 同为静态或同为动态时保持注册顺序（PHP 8 usort 稳定）。
+        $routes = $this->routes;
+        usort($routes, static fn(array $a, array $b): int =>
+            substr_count($a['pattern'], '{') <=> substr_count($b['pattern'], '{'));
+
+        foreach ($routes as $route) {
             $regex = $this->toRegex($route['pattern']);
             if (!preg_match($regex, $req->path, $m)) {
                 continue;
@@ -71,10 +78,9 @@ class Router
             }
             $params = array_filter($m, 'is_string', ARRAY_FILTER_USE_KEY);
             // 按 API Key 的 scope 做路由级授权（* 或未设置表示不限）
-            try {
-                Auth::requireScope($route['scope'] ?? null);
-            } catch (AuthException $e) {
-                Response::unauthorized($e->getMessage());
+            // Key 有效但权限不足属于 403，不能与「Key 无效」共用 401
+            if (!Auth::hasScope($route['scope'] ?? null)) {
+                Response::forbidden('当前 API Key 缺少权限: ' . $route['scope']);
                 return;
             }
             $this->invoke($route['handler'], $params, $req);

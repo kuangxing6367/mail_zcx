@@ -54,8 +54,12 @@ class LogService
             $params['request_id'] = $filter['request_id'];
         }
         if (!empty($filter['keyword'])) {
-            $where[] = '(to_email LIKE :kw OR subject LIKE :kw)';
-            $params['kw'] = '%' . $filter['keyword'] . '%';
+            // 命名参数在原生预处理（EMULATE_PREPARES=false）下不能重复出现，
+            // 两个字段必须用两个名字，否则 MySQL 报 HY093 Invalid parameter number
+            $where[] = '(to_email LIKE :kw1 OR subject LIKE :kw2)';
+            $kw = '%' . $filter['keyword'] . '%';
+            $params['kw1'] = $kw;
+            $params['kw2'] = $kw;
         }
         if (!empty($filter['start'])) {
             $where[] = 'created_at >= :start';

@@ -34,12 +34,18 @@ spl_autoload_register(static function (string $class): void {
 if (PHP_SAPI === 'cli-server') {
     $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
     $staticFile  = __DIR__ . $requestPath;
-    if ($requestPath !== '/' && is_file($staticFile)) {
+    $real        = realpath($staticFile);
+    $docRoot     = realpath(__DIR__) ?: __DIR__;
+    // 必须落在 public/ 内：否则 /zc-console/../.. 这类路径会绕过路由，
+    // 让内置服务器直接把 config/、storage/ 下的文件当静态资源吐出来
+    $inside      = $real !== false && str_starts_with($real, $docRoot . DIRECTORY_SEPARATOR);
+
+    if ($requestPath !== '/' && $inside && is_file($real) && $real !== __FILE__) {
         return false;
     }
     // 目录请求补 index.html：让 php -S 与 nginx 的 try_files 行为一致。
     // 否则 /zc-console/ 会落到 PHP 路由被鉴权拦截，返回 401 JSON。
-    if (is_dir($staticFile) && is_file(rtrim($staticFile, '/') . '/index.html')) {
+    if ($inside && is_dir($real) && is_file(rtrim($real, '/') . '/index.html')) {
         return false;
     }
 }

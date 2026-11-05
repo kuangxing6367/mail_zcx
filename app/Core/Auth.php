@@ -74,14 +74,19 @@ class Auth
      */
     public static function requireScope(?string $scope): void
     {
+        if (!self::hasScope($scope)) {
+            throw new AuthException('当前 API Key 缺少权限: ' . $scope);
+        }
+    }
+
+    /** 当前请求的 Key 是否具备某个 scope（null/空 = 不限） */
+    public static function hasScope(?string $scope): bool
+    {
         if ($scope === null || $scope === '') {
-            return;
+            return true;
         }
         $scopes = (array) RequestContext::get('scopes', ['*']);
-        if (in_array('*', $scopes, true) || in_array($scope, $scopes, true)) {
-            return;
-        }
-        throw new AuthException('当前 API Key 缺少权限: ' . $scope);
+        return in_array('*', $scopes, true) || in_array($scope, $scopes, true);
     }
 
     /** 供 CLI（SMTP 入站）复用：校验 Key 是否有效，成功返回行；IP 用于 Key 级白名单 */
