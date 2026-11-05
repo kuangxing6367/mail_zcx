@@ -253,12 +253,16 @@ curl -X POST https://your-domain.com/api/v1/send \
 > 默认队列模式下，上面的请求返回 **HTTP 202 + `status: "queued"`**，只表示已入队，不代表已投递。
 > 投递结果见下节。
 
-## 异步发信与 worker（默认开启）
+## 发信模式：同步（默认）与异步队列
 
-`config/config.php` 的 `mail.queue.enabled` 默认 `true`：`/api/v1/send` 只做解析与落库，
-立即返回 `202` + `{"status":"queued","log_id":...}`，SMTP 投递交给后台 worker。
+`config/config.local.example.php` 里 **`mail.queue.enabled` 默认是 `false`**，也就是同步发信：
+`/api/v1/send` 在请求内完成 SMTP 投递，直接返回真实结果。不需要 worker、不需要计划任务，
+虚拟主机和「先跑起来再说」的场景都用这个。
 
-**只开队列不跑 worker，邮件会一直停在 `pending`。** 部署后必须启动 worker，二选一：
+异步队列是可选项：把它打开后 `/api/v1/send` 只做解析与落库，立即返回 `202` +
+`{"status":"queued","log_id":...}`，SMTP 投递交给后台 worker，失败按指数退避重试。
+
+**开了队列就必须有人投递，否则邮件一直停在 `pending`。** 二选一：
 
 ### 方式 A：supervisor 常驻（推荐）
 
@@ -305,11 +309,11 @@ curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
 
 ### 想改回同步
 
-在 `config.local.php` 覆盖：
-
-```php
-return ['mail' => ['queue' => ['enabled' => false]]];
-```
+| 方式 | 做法 | 生效时机 |
+|---|---|---|
+| 控制台（最省事） | 系统设置 → 发信与队列 → 关掉「异步队列」 | 立即 |
+| 覆盖配置 | `config.local.php` 里加 `return ['mail' => ['queue' => ['enabled' => false]]];` | 下一次请求 |
+| 删覆盖文件 | 删除 `config/config.overrides.php` | 下一次请求 |
 
 改回同步后 `/api/v1/send` 直接返回投递结果，不需要 worker；代价是请求会被 SMTP 会话阻塞。
 
@@ -317,12 +321,50 @@ return ['mail' => ['queue' => ['enabled' => false]]];
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `mail.queue.enabled` | `true` | 队列开关 |
+| `mail.queue.enabled` | `false` | 队列开关（部署模板默认同步） |
 | `mail.queue.max_attempts` | `3` | 最多投递次数（含首次） |
 | `mail.queue.batch` | `10` | worker 单次认领数 |
 | `mail.queue.idle_sleep` | `2` | 队列空时休眠秒数 |
 | `mail.queue.stuck_timeout` | `300` | 认领超时回收（worker 崩溃兜底） |
 | `mail.queue.retry_base` | `30` | 重试退避基数（秒） |
+
+---
+
+## 在网页上改配置（不用登服务器）
+
+控制台左侧「系统设置」可以改一批常用项，改完点保存立即生效，不需要 SSH、不需要 FTP。
+
+<div style="border:1px solid var(--vp-c-divider);border-radius:10px;padding:14px 16px;margin:16px 0">
+<strong>能改的</strong>：发信模式与队列参数、SMTP 超时、邮箱选择策略、Webhook 投递策略、
+API 秘密入口、Web Cron 口令、鉴权锁定阈值、可信反代地址、调试开关。<br>
+<strong>不能改的</strong>：数据库凭据、<code>app_secret</code>、IP 白名单、附件目录、SMTP 入站参数 ——
+这些改错会让服务直接不可用，页面里也列了清单，需要手工编辑 <code>config.local.php</code>。
+</div>
+
+### 它是怎么存的
+
+改动写进 `config/config.overrides.php`，加载顺序是：
+
+```
+config.php  →  config.local.php  →  config.overrides.php
+（内置默认）    （你的手写配置）      （控制台生成，优先级最高）
+```
+
+这样做的好处：
+
+- **不会动你的 `config.local.php`** —— 里面用 `getenv()` 取密钥之类的逻辑不会被重写掉
+- 网页端只能写白名单字段，值经过类型/范围/正则校验，写完先校验文件能否被 `require` 再落盘
+- 每次覆盖前留一份 `config.overrides.php.bak`
+- 想全部恢复成手写配置：点「恢复手写配置」，或直接删掉这个文件
+
+### 前提与注意
+
+- **`config/` 目录要对 PHP 进程可写**。宝塔默认站点属主是 `www`，一般没问题；
+  如果页面提示「config 目录不可写」，在文件管理里把 `config` 权限改成可写，或继续手工编辑
+- 标了 **「需重启 worker」** 的项（队列、超时、重试）改完对**已经启动的常驻 worker 不生效** ——
+  worker 是常驻进程，配置在启动时读进内存。改完记得 `supervisorctl restart zc-mail-worker`，
+  或等计划任务下一轮 `--once`
+- 写入后会对该文件做 `opcache_invalidate`，PHP-FPM 下不用重启就能读到新值
 
 ## 本地联调（不需要真实 SMTP 账号）
 

@@ -51,14 +51,18 @@ return [
         // 'allow_path_attachment' => true,
         // 'attachment_roots'      => ['/www/wwwroot/mail/storage/uploads'],
         // ---- 队列 ----
-        // 默认 true：接口返回 202，必须有人跑 worker（CLI 常驻 或 Web Cron）。
-        // 虚拟主机没有 CLI 时二选一：
-        //   a) 'enabled' => false  完全退回同步发信（和早期版本一致，最简单）
-        //   b) 保持 true + 计划任务访问 /zc-cron.php?token=xxx
-        // 'queue' => [
-        //     'enabled'      => false,
-        //     'web_cron_batch' => 5,   // Web Cron 单次最多投递几封
-        // ],
+        // 这里默认「同步发信」：请求内直接完成投递、返回真实结果，不依赖任何后台进程。
+        // 虚拟主机 / 无 SSH 的环境只能跑这个模式，也是项目最早期的行为。
+        //
+        // 想用异步队列（接口立即返回 202，后台投递 + 失败重试）：
+        //   ① 把 enabled 改成 true
+        //   ② 确保 worker 在跑：supervisor 常驻，或宝塔计划任务每分钟
+        //      `php cli/worker.php --once`，或配 URL 型任务访问 /zc-cron.php?token=xxx
+        // 也可以在控制台「系统设置 → 发信与队列」里直接切换（不用改这个文件）。
+        'queue' => [
+            'enabled'        => false,
+            'web_cron_batch' => 5,   // Web Cron 单次最多投递几封
+        ],
     ],
     // SMTP 入站：让只会说 SMTP 的老系统直接投递，不需要改成 HTTP 调用
     // 开启前必须：① nginx stream 把 25/587 转到 127.0.0.1:2525  ② 常驻跑 cli/worker.php

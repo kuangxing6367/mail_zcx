@@ -44,6 +44,7 @@
 | **异步队列** | 入队即返回 `202`，worker 后台投递、指数退避重试、卡死任务自动回收；没有 CLI 的虚拟主机可用 URL 计划任务（`zc-cron.php`）驱动 |
 | **SMTP 入站** | 内置标准 SMTP 服务（AUTH PLAIN/LOGIN、STARTTLS、PROXY protocol），老系统直接填服务器地址即可发信，走同一条投递链路 |
 | **零 CLI 安装** | 有 SSH 用 `cli/install.php`；没有就用网页安装器 `/zc-install.php`（一次性口令 + 装完自动失效） |
+| **网页改配置** | 控制台「系统设置」直接切发信模式、队列参数与安全项，不用登服务器改文件；改动落在 `config.overrides.php`，删掉即回滚 |
 | **发送日志** | 收件人、主题、SMTP 响应码、错误、耗时、来源 IP、原始请求体，按状态/关键词检索 |
 | **统计报表** | 按日 / 7 天 / 30 天汇总，含按邮箱、按小时的分布 |
 | **Web 控制台** | 纯静态单文件，无框架无 CDN，覆盖仪表盘 / 发信 / 邮箱 / 模板 / Webhook / 日志 / 密钥 |
@@ -169,10 +170,15 @@ location / {
 > 这会**拦截 API 返回的 404 状态码并替换成 HTML**。API 站点请注释掉该行，
 > 否则「接口不存在」会返回 HTML 而不是 JSON。
 
-### 5. 启动发信 worker（默认队列必需）
+### 5. 选择发信模式（同步 / 异步队列）
 
-`mail.queue.enabled` 默认 `true`：`/api/v1/send` 把邮件写入 `zc_send_jobs` 后立即返回 `202`，
-必须由 worker 后台投递：
+**默认是同步**：`config/config.local.example.php` 里 `mail.queue.enabled` 为 `false`，
+`/api/v1/send` 在请求内完成 SMTP 投递并返回 `200` + 真实结果，不需要任何后台进程。
+虚拟主机、没有 SSH 的环境、只想跑通发信的场景，用这个就够。
+
+想换成异步队列（接口立即返回 `202`，worker 后台投递 + 指数退避重试）：
+打开控制台「系统设置 → 发信与队列」把「异步队列」开关打开，或直接改配置
+`'mail' => ['queue' => ['enabled' => true]]`。**开了队列就必须让 worker 跑起来**：
 
 ```bash
 # 常驻（推荐用 supervisor 守护，配置见 deploy/supervisor-mail-worker.conf.example）
@@ -182,12 +188,14 @@ php cli/worker.php
 php cli/worker.php --once
 ```
 
-不启动 worker，邮件会一直停在 `pending`。想改回同步：在 `config.local.php` 里设
-`'mail' => ['queue' => ['enabled' => false]]`。
+不启动 worker，邮件会一直停在 `pending`。
 
-没有 SSH / CLI 的虚拟主机二选一：改成同步；或配「访问 URL」型计划任务每分钟请求
-`https://你的域名/zc-cron.php?token=你的cron_token`（需先在配置里设 `security.cron_token`），
+没有 SSH / CLI 的虚拟主机想用队列：配「访问 URL」型计划任务每分钟请求
+`https://你的域名/zc-cron.php?token=你的cron_token`（需先在系统设置或配置里设 `security.cron_token`），
 详见[虚拟主机部署](https://mail.zgric.top/deploy-shared-hosting)。
+
+> 控制台的「系统设置」页可以直接切换这些开关，改动写入 `config/config.overrides.php`，
+> 优先级高于 `config.local.php`；删掉该文件即恢复手写配置。
 
 ### 6. 可选：用 25 端口收信（SMTP 入站）
 

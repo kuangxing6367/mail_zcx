@@ -84,6 +84,11 @@ return [
         // enabled=true:  /api/v1/send 立即返回 202，发信由 cli/worker.php 后台执行
         //   ⚠ 必须常驻运行 worker，否则邮件会堆积在 pending 状态
         // enabled=false: 走原同步阻塞逻辑（单请求内完成 SMTP 投递，向后兼容）
+        //
+        // 注意：这里的 true 只是「代码内建默认」。实际部署用的
+        // config/config.local.example.php 里是显式 false（同步），因为虚拟主机占多数；
+        // 宝塔/VPS 这条线要异步，就在 config.local.php 里改成 true，或在控制台
+        // 「系统设置 → 发信与队列」里切换（写 config.overrides.php，优先级更高）。
         'queue' => [
             'enabled'       => true,          // true=队列异步 / false=同步
             'max_attempts'  => 3,             // 单封最多投递次数（含首次）

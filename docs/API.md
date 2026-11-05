@@ -339,6 +339,7 @@ Content-Type: application/json
 | `templates` | `/templates*` |
 | `webhooks` | `/webhooks*`、`/hook/events` |
 | `keys` | `/keys*` |
+| `settings` | `/settings*`（网页端改配置） |
 
 权限不足返回 **403** `当前 API Key 缺少权限: <scope>`（早期版本误用 401，已修正）。
 鉴权失败（Key 无效/缺失）才是 401。
@@ -346,7 +347,58 @@ Content-Type: application/json
 
 ---
 
-## 7. 健康检查
+## 7. 系统设置
+
+供控制台「系统设置」页使用。只开放白名单字段，写入 `config/config.overrides.php`，
+优先级高于 `config.local.php`；需要 `settings` scope。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/settings` | 读取可改项、当前生效值、只读项清单 |
+| `POST` | `/settings` | 保存（只提交要改的项） |
+| `POST` | `/settings/reset` | 删除覆盖文件，恢复 `config.local.php` 的值 |
+
+`GET` 返回结构：
+
+```json
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "groups": [
+      { "name": "发信与队列", "fields": [
+        { "key": "mail.queue.enabled", "label": "异步队列", "type": "bool",
+          "value": false, "hint": "...", "restart": "worker", "is_set": null }
+      ]}
+    ],
+    "readonly": { "db.*": "数据库凭据改错会直接连不上…" },
+    "file": "/www/wwwroot/mail.zcx/config/config.overrides.php",
+    "exists": false,
+    "writable": true,
+    "writable_note": ""
+  }
+}
+```
+
+`POST` 请求体就是「键 → 值」，键名用点号路径：
+
+```json
+{ "mail.queue.enabled": true, "mail.timeout": 15, "security.cron_token": "..." }
+```
+
+规则：
+
+- 未在白名单里的键直接 `400`，不会部分写入
+- 值按类型校验（布尔 / 整数范围 / 枚举 / 正则），**密钥类字段留空表示不改**，传 `null` 表示清除
+- 密钥类（`security.cron_token` 等）读取时只回 `is_set`，不返回明文
+- 返回里的 `restart` 含 `worker` 表示这项改动要重启常驻 worker 才生效
+- `config` 目录不可写时返回 `400` 并说明进程用户与目录路径
+
+> 不在白名单的项（数据库、`app_secret`、IP 白名单、SMTP 入站）需要手工编辑 `config.local.php`。
+
+---
+
+## 8. 健康检查
 
 ### `GET /health`（免鉴权）
 
@@ -358,7 +410,7 @@ Content-Type: application/json
 
 ---
 
-## 8. 入站 Webhook
+## 9. 入站 Webhook
 
 `POST /api/v1/hook/inbound`（免 API Key，但必须签名）：
 

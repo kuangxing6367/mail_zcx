@@ -192,11 +192,24 @@ curl https://你的域名/health
 
 ---
 
-## 11. 启动发信 worker（默认队列必需）
+## 11. 选择发信模式（同步 / 异步队列）
 
-`mail.queue.enabled` 默认 `true`：发信接口只把邮件写入队列并返回 `202`，
-真正的 SMTP 投递、重试与 Webhook 回调由 `cli/worker.php` 完成。
-**不做这一步，邮件会一直停在 `pending`。**
+部署模板里 `mail.queue.enabled` **默认 `false`**，也就是同步发信：接口在请求内完成 SMTP 投递，
+直接返回真实结果，不需要 worker。这一步不做也能正常发信。
+
+宝塔能跑常驻进程，建议改成异步——接口立刻返回，慢 SMTP 和失败重试都交给后台：
+
+| 模式 | 接口返回 | 需要 worker | 适合 |
+|---|---|---|---|
+| 同步（默认） | `200` + `status: success` | 否 | 量小、少一个进程、虚拟主机 |
+| 异步队列 | `202` + `status: queued` | 是 | 有并发、SMTP 偶发慢、要自动重试 |
+
+改成异步两种方式，任选一个：
+
+- 控制台 →「系统设置 → 发信与队列」→ 打开「异步队列」（写 `config.overrides.php`，立即生效）
+- 或编辑 `config/config.local.php` 加 `'mail' => ['queue' => ['enabled' => true]]`
+
+**开了队列就必须做下面任意一步，否则邮件一直停在 `pending`。**
 
 ### 方式 A：宝塔计划任务（最简单，1 分钟兜底）
 
@@ -240,8 +253,8 @@ curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
 
 `status` 从 `pending` 变为 `success` 即 worker 正常。
 
-> 想改回同步（不需要 worker）：在 `config/config.local.php` 加
-> `'mail' => ['queue' => ['enabled' => false]]`，然后重载 php-fpm。
+> 想改回同步（不需要 worker）：控制台「系统设置」关掉异步队列，或在
+> `config/config.local.php` 加 `'mail' => ['queue' => ['enabled' => false]]`，然后重载 php-fpm。
 
 ---
 

@@ -113,7 +113,7 @@ return [
         // Web Cron 口令（用「访问 URL」计划任务时需要）
         'cron_token'  => '再换一个随机串',
     ],
-    // 没有常驻进程，先走同步发信（和最早版本行为一致）
+    // 没有常驻进程，走同步发信（部署模板默认值就是 false，这里显式写一遍更清楚）
     'mail' => [
         'queue' => ['enabled' => false],
     ],
@@ -178,7 +178,8 @@ curl https://你的域名/
 
 ### 方式 A：同步（省事，推荐先用这个）
 
-第 4 节已经设了 `'queue' => ['enabled' => false]`。这样：
+部署模板里 `mail.queue.enabled` **本来就是 `false`**（第 4 节也显式写了一遍），这就是方式 A，
+不用再改。这样：
 
 - `POST /api/v1/send` 在请求内完成 SMTP 投递，直接返回 `200` + `status: success`
 - 不需要 worker、不需要计划任务
@@ -192,6 +193,8 @@ curl https://你的域名/
     'queue'         => ['enabled' => false],
 ],
 ```
+
+> 这几项都能在控制台「系统设置 → 发信与队列」里直接改，改完立即生效，不用重新传文件。
 
 ### 方式 B：队列 + Web Cron（主机有「访问 URL」计划任务时）
 

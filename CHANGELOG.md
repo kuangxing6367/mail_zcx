@@ -1,5 +1,31 @@
 # 更新日志
 
+## 未发布
+
+### 新增
+
+- **控制台「系统设置」页**：不用 SSH、不用 FTP 就能改常用配置 —— 发信模式与队列参数、
+  SMTP 超时、邮箱选择策略、Webhook 投递策略、API 秘密入口、Web Cron 口令、鉴权锁定阈值、
+  可信反代地址、调试开关。保存立即生效，标了「需重启 worker」的项需重启常驻进程
+- **配置三层**：`config.php` → `config.local.php` → `config.overrides.php`。
+  网页端只写最后一层，不碰手写文件里的 `getenv()` 等逻辑；删掉该文件即恢复手写配置
+- 新接口 `GET/POST /api/v1/settings`、`POST /api/v1/settings/reset`，独立 `settings` scope
+
+### 变更
+
+- **部署模板默认改为同步发信**（`config/config.local.example.php` 里 `mail.queue.enabled = false`）。
+  虚拟主机/无 SSH 环境是主要使用场景，装完即可发信，不必先配 worker 或计划任务；
+  要异步队列的环境显式打开（控制台或配置），并让 worker 跑起来
+
+### 安全
+
+- 网页端写配置只允许白名单字段，值经类型/范围/正则校验；写入前先 `require` 验证生成的代码，
+  通过后才 `rename` 落盘并保留 `.bak`；写完 `opcache_invalidate`
+- 密钥类字段（`cron_token` / `inbound_secret`）读取时不返明文，只给「是否已设置」
+- 数据库凭据、`app_secret`、IP 白名单、附件目录、SMTP 入站不在白名单内，并在页面上明确列出原因
+
+---
+
 ## v1.0.0 — 2026-11-06
 
 第一个正式版本。零依赖 PHP 发信服务，`public/` 为唯一入口，MySQL 单库。

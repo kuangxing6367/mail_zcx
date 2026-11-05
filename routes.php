@@ -66,5 +66,12 @@ return function (Router $r): void {
         $r->post('/keys/{id}', 'ApiKeyController@update', 'keys');
         $r->delete('/keys/{id}', 'ApiKeyController@destroy', 'keys');
         $r->post('/keys/{id}/rotate', 'ApiKeyController@rotate', 'keys');
+
+        // ---------- 系统设置（网页端改配置） ----------
+        // 只开放白名单字段，落盘到 config/config.overrides.php；
+        // 需要独立 scope，避免一个只读 Key 改掉队列开关或关掉 SSRF 防护。
+        $r->get('/settings', 'SettingsController@index', 'settings');
+        $r->post('/settings', 'SettingsController@update', 'settings');
+        $r->post('/settings/reset', 'SettingsController@reset', 'settings');
     });
 };

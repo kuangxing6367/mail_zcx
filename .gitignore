@@ -1,5 +1,9 @@
 # 环境本地配置（含真实凭据，请勿提交到版本库）
 config/config.local.php
+# 控制台「系统设置」生成，含 cron_token 等，同样不入库
+config/config.overrides.php
+config/config.overrides.php.bak
+config/config.overrides.php.*.tmp
 
 # 运行时产物
 storage/logs/*

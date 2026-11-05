@@ -15,6 +15,21 @@
 没有容器、没有事件总线、没有 ORM。所有依赖通过构造函数或静态入口显式获取，读代码即可掌握全貌。
 这样做的代价是扩展性有限，收益是可审计 —— 对一个处理邮箱凭据的服务来说，后者更重要。
 
+### 配置分三层
+
+```
+config.php              内置默认值，随代码走，不含任何凭据
+config.local.php        服务器手写，含 DB 密码与 app_secret，不入库
+config.overrides.php    控制台「系统设置」生成，不入库，优先级最高
+```
+
+后加载的层层 `array_replace_recursive` 覆盖前面的。分三层的理由是：
+
+- 网页端改配置时**不能重写 `config.local.php`** —— 里面常有 `getenv()` 取密钥之类的逻辑，
+  整文件 `var_export` 回写会把它变成明文常量，属于安全降级；
+- 控制台只写自己的 `config.overrides.php`，字段在白名单内、类型化生成，写前先 `require` 验证再 `rename`；
+- 删掉 `config.overrides.php` 就完整回到手写配置，不需要「撤销」概念。
+
 ## 为什么不用 PHPMailer
 
 需求集中在三件事：多邮箱切换、模板渲染、投递结果留存。PHPMailer 能覆盖发信，但：
@@ -110,8 +125,10 @@ X-ZC-Signature: sha256=<hex(hmac_sha256(raw_body, secret))>
 ## 发信执行模型
 
 `POST /api/v1/send` 有两种执行模式，由 `mail.queue.enabled` 切换。
+**部署模板里默认 `false`（同步）**，因为虚拟主机占多数；`config.php` 的内建默认是 `true`，
+只代表「能力上限」。两种模式共用同一条 MIME 构建与日志链路，区别只在谁来发起 SMTP 会话。
 
-### 默认：入队异步（`enabled = true`）
+### 可选：入队异步（`enabled = true`）
 
 请求只做「无网络 IO 的准备 + 落库」，立即返回 `202`：
 
@@ -164,7 +181,7 @@ claim(send_jobs, FOR UPDATE) → connect/EHLO/STARTTLS/AUTH → MAIL/RCPT/DATA �
 `total_timeout` 在每次读取前按剩余时间重设 `stream_set_timeout`，避免 `15s × N` 挂到分钟级。
 本地实测：单步 15s、总闸 2s、对端不响应 → 2.02s 抛出。
 
-### 同步模式（`enabled = false`）
+### 同步模式（`enabled = false`，部署模板默认）
 
 回退到旧行为：单请求内完成整条 SMTP 会话，直接返回投递结果。适合低频、强一致性要求、
 且不方便常驻 worker 的环境。此时两层超时与下述 Webhook 边界仍然适用。

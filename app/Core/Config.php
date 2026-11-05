@@ -23,13 +23,43 @@ class Config
         // 环境覆盖：config/config.local.php 存放真实凭据，不入版本库
         $local = dirname($path) . '/config.local.php';
         if (is_file($local)) {
-            $override = require $local;
-            if (is_array($override)) {
+            $override = self::requireArray($local);
+            if ($override !== null) {
+                $cfg = array_replace_recursive($cfg, $override);
+            }
+        }
+
+        // 控制台覆盖：config/config.overrides.php 由网页端「系统设置」生成，
+        // 优先级高于 config.local.php —— 网页上刚保存的值必须立刻生效。
+        // 单独一个文件的好处：网页永远不碰用户手写的 config.local.php，
+        // 里面 getenv() 之类的逻辑不会被重写掉。删掉本文件即恢复手写配置。
+        $web = dirname($path) . '/config.overrides.php';
+        if (is_file($web)) {
+            $override = self::requireArray($web);
+            if ($override !== null) {
                 $cfg = array_replace_recursive($cfg, $override);
             }
         }
 
         self::$items = $cfg;
+    }
+
+    /** 读取配置文件；语法损坏时返回 null 而不是把整个站点打挂 */
+    private static function requireArray(string $file): ?array
+    {
+        try {
+            $data = require $file;
+        } catch (\Throwable $e) {
+            error_log('[ZC Mail] 配置文件解析失败 ' . $file . ': ' . $e->getMessage());
+            return null;
+        }
+        return is_array($data) ? $data : null;
+    }
+
+    /** 网页端设置的落盘位置 */
+    public static function overridePath(): string
+    {
+        return dirname(__DIR__, 2) . '/config/config.overrides.php';
     }
 
     public static function get(string $key, mixed $default = null): mixed
