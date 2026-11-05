@@ -70,8 +70,12 @@ class LogService
         $total = (int) $this->db->fetchColumn("SELECT COUNT(*) FROM `{$this->table}` WHERE {$whereSql}", $params);
 
         $offset = ($page - 1) * $size;
+        // 列表不返回 payload（含原始请求体，可能有验证码/收件人明细）
         $rows = $this->db->fetchAll(
-            "SELECT * FROM `{$this->table}` WHERE {$whereSql} ORDER BY id DESC LIMIT {$size} OFFSET {$offset}",
+            "SELECT id, request_id, mailbox_id, from_email, to_email, cc_email, bcc_email,
+                    subject, template_code, status, smtp_code, smtp_message, error,
+                    duration_ms, source_ip, user_agent, created_at, sent_at
+             FROM `{$this->table}` WHERE {$whereSql} ORDER BY id DESC LIMIT {$size} OFFSET {$offset}",
             $params
         );
 

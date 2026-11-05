@@ -18,7 +18,7 @@ hero:
 
 features:
   - title: 零运行时依赖
-    details: 手写 SMTP 客户端与 MIME 构建器，不依赖 composer、PHPMailer。有 pdo_mysql + openssl 就能跑。
+    details: 手写 SMTP 客户端与 MIME 构建器，不依赖 composer、PHPMailer。PHP ≥ 8.0 + pdo_mysql / openssl / mbstring / curl / json 五个扩展即可。
   - title: 多邮箱智能选箱
     details: 默认选择累计发件数最少的邮箱，天然负载均衡；也可按权重、轮询、随机或显式指定。
   - title: 数据完全自持

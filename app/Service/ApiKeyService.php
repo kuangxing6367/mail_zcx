@@ -8,6 +8,9 @@ use RuntimeException;
 
 /**
  * API Key 管理
+ *
+ * 数据库只保存 sha256(api_key)；api_key 列仅存脱敏展示串。
+ * 明文只在创建 / 轮换的响应里返回一次。
  */
 class ApiKeyService
 {
@@ -46,24 +49,37 @@ class ApiKeyService
      */
     public function create(array $data): array
     {
-        $name = trim((string) ($data['name'] ?? ''));
-        $apiKey = trim((string) ($data['api_key'] ?? '')) ?: Crypto::randomKey('zc_');
-        $secret = trim((string) ($data['api_secret'] ?? '')) ?: bin2hex(random_bytes(16));
+        $name   = trim((string) ($data['name'] ?? ''));
+        $custom = trim((string) ($data['api_key'] ?? ''));
+        if ($custom !== '' && strlen($custom) < 32) {
+            throw new RuntimeException('自定义 API Key 至少 32 个字符');
+        }
+        $apiKey = $custom !== '' ? $custom : Crypto::randomKey('zc_');
+        $secret = bin2hex(random_bytes(16));
+        $scopes = $this->normalizeScopes($data['scopes'] ?? '*');
 
         $row = [
-            'name'       => $name !== '' ? $name : '未命名密钥',
-            'api_key'    => $apiKey,
-            'api_secret' => $secret,
-            'status'     => isset($data['status']) ? (int) $data['status'] : 1,
-            'allow_ips'  => trim((string) ($data['allow_ips'] ?? '')),
-            'rate_limit' => (int) ($data['rate_limit'] ?? 0),
-            'expires_at' => !empty($data['expires_at']) ? (string) $data['expires_at'] : null,
+            'name'         => $name !== '' ? $name : '未命名密钥',
+            'api_key'      => Crypto::mask($apiKey),
+            'api_key_hash' => hash('sha256', $apiKey),
+            'scopes'       => $scopes,
+            'api_secret'   => $secret,
+            'status'       => isset($data['status']) ? (int) $data['status'] : 1,
+            'allow_ips'    => trim((string) ($data['allow_ips'] ?? '')),
+            'rate_limit'   => (int) ($data['rate_limit'] ?? 0),
+            'expires_at'   => !empty($data['expires_at']) ? (string) $data['expires_at'] : null,
         ];
 
         $id = $this->db->insert('api_keys', $row);
-        $row['id'] = $id;
 
-        return $row; // 明文返回，便于一次性保存
+        return [
+            'id'         => $id,
+            'name'       => $row['name'],
+            'api_key'    => $apiKey,   // 明文，仅此一次
+            'api_secret' => $secret,
+            'scopes'     => $scopes,
+            'status'     => $row['status'],
+        ];
     }
 
     public function update(int $id, array $data): int
@@ -71,7 +87,7 @@ class ApiKeyService
         if (!$this->get($id)) {
             throw new RuntimeException('密钥不存在: #' . $id);
         }
-        $fields = ['name', 'status', 'allow_ips', 'rate_limit', 'expires_at'];
+        $fields = ['name', 'status', 'allow_ips', 'rate_limit', 'expires_at', 'scopes'];
         $row = [];
         foreach ($fields as $f) {
             if (array_key_exists($f, $data)) {
@@ -83,6 +99,9 @@ class ApiKeyService
         }
         if (isset($row['rate_limit'])) {
             $row['rate_limit'] = (int) $row['rate_limit'];
+        }
+        if (isset($row['scopes'])) {
+            $row['scopes'] = $this->normalizeScopes($row['scopes']);
         }
         return $row ? $this->db->update('api_keys', $row, 'id = :wid', ['wid' => $id]) : 0;
     }
@@ -100,14 +119,41 @@ class ApiKeyService
         }
         $apiKey = Crypto::randomKey('zc_');
         $secret = bin2hex(random_bytes(16));
-        $this->db->update('api_keys', ['api_key' => $apiKey, 'api_secret' => $secret], 'id = :wid', ['wid' => $id]);
+        $this->db->update('api_keys', [
+            'api_key'      => Crypto::mask($apiKey),
+            'api_key_hash' => hash('sha256', $apiKey),
+            'api_secret'   => $secret,
+        ], 'id = :wid', ['wid' => $id]);
         return ['id' => $id, 'api_key' => $apiKey, 'api_secret' => $secret];
     }
 
     public function toApi(array $row): array
     {
+        // 永远不把摘要返回给前端
+        unset($row['api_key_hash']);
         $row['api_key']    = Crypto::mask((string) $row['api_key']);
         $row['api_secret'] = Crypto::mask((string) $row['api_secret']);
         return $row;
+    }
+
+    /** 归一化 scope 列表，空或 * 表示全部权限 */
+    private function normalizeScopes(mixed $raw): string
+    {
+        if (is_array($raw)) {
+            $list = array_map('trim', $raw);
+        } else {
+            $list = array_map('trim', explode(',', (string) $raw));
+        }
+        $list = array_values(array_filter($list, static fn($v) => $v !== ''));
+        if (!$list || in_array('*', $list, true)) {
+            return '*';
+        }
+        $allowed = ['send', 'logs', 'mailboxes', 'templates', 'webhooks', 'keys'];
+        foreach ($list as $s) {
+            if (!in_array($s, $allowed, true)) {
+                throw new RuntimeException('未知的 scope: ' . $s . '（可选：' . implode(', ', $allowed) . ' 或 *）');
+            }
+        }
+        return implode(',', array_unique($list));
     }
 }

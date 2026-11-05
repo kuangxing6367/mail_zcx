@@ -83,6 +83,8 @@ class WebhookController extends BaseController
                 Response::error('缺少参数 url', 1, 400);
                 return;
             }
+            // 提前校验，给出明确错误（httpPost 内还会再拦一次）
+            WebhookService::assertSafeUrl($url);
             $svc = new WebhookService();
             $result = $svc->dispatch('test', [
                 'message'    => '这是一条来自 ZC Mail Service 的测试回调',
@@ -101,9 +103,13 @@ class WebhookController extends BaseController
      */
     public function receive(Request $req, array $params): void
     {
-        $this->handle(function () use ($req) {
+        $secret = (string) Config::get('security.inbound_secret', '');
+        if ($secret === '') {
+            Response::error('入站 Webhook 未启用：请先配置 security.inbound_secret', 4030, 403);
+            return;
+        }
+        $this->handle(function () use ($req, $secret) {
             $svc = new WebhookService();
-            $secret = (string) Config::get('security.inbound_secret', '');
             $result = $svc->receive($req, [
                 'source'  => $req->string('source'),
                 'secret'  => $secret,

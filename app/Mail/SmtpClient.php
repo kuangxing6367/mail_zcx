@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Core\Config;
 use RuntimeException;
 
 /**
@@ -72,12 +73,13 @@ class SmtpClient
     {
         $this->deadline = $this->budget > 0 ? microtime(true) + $this->budget : 0.0;
 
+        $verifyTls = (bool) Config::get('mail.smtp_verify_tls', true);
         $context = stream_context_create([
             'ssl' => [
-                // 兼容自签名证书的 SMTP 服务器；如需强校验改为 true
-                'verify_peer'       => false,
-                'verify_peer_name'  => false,
-                'allow_self_signed' => true,
+                // 默认校验证书；自建/自签名 SMTP 可在 config.local.php 关掉 mail.smtp_verify_tls
+                'verify_peer'       => $verifyTls,
+                'verify_peer_name'  => $verifyTls,
+                'allow_self_signed' => !$verifyTls,
                 'SNI_enabled'       => true,
                 'peer_name'         => $this->host,
             ],
@@ -229,8 +231,13 @@ class SmtpClient
         $code = (int) $this->lastCode;
 
         if ($expectCodes && !in_array($code, $expectCodes, true)) {
+            // 敏感命令（AUTH 及账号密码的 base64 参数）不能出现在异常消息里，
+            // 否则会经 mail_logs.error / 文件日志 / Webhook 扩散出去
+            $display = $mask
+                ? (str_contains($cmd, ' ') ? preg_replace('#\s.*$#s', ' ***', $cmd) : '***')
+                : $cmd;
             throw new RuntimeException(
-                sprintf('SMTP 命令失败 [%s] 期望 %s 实际 %d: %s', $cmd, implode('/', $expectCodes), $code, $this->lastResponse)
+                sprintf('SMTP 命令失败 [%s] 期望 %s 实际 %d: %s', $display, implode('/', $expectCodes), $code, $this->lastResponse)
             );
         }
 

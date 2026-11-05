@@ -20,39 +20,40 @@ class Router
         $this->prefix = $prev;
     }
 
-    public function add(string $method, string $pattern, mixed $handler): void
+    public function add(string $method, string $pattern, mixed $handler, ?string $scope = null): void
     {
         $this->routes[] = [
             'method'  => strtoupper($method),
             'pattern' => $this->prefix . '/' . ltrim($pattern, '/'),
             'handler' => $handler,
+            'scope'   => $scope,
         ];
     }
 
-    public function get(string $p, mixed $h): void
+    public function get(string $p, mixed $h, ?string $scope = null): void
     {
-        $this->add('GET', $p, $h);
+        $this->add('GET', $p, $h, $scope);
     }
 
-    public function post(string $p, mixed $h): void
+    public function post(string $p, mixed $h, ?string $scope = null): void
     {
-        $this->add('POST', $p, $h);
+        $this->add('POST', $p, $h, $scope);
     }
 
-    public function put(string $p, mixed $h): void
+    public function put(string $p, mixed $h, ?string $scope = null): void
     {
-        $this->add('PUT', $p, $h);
+        $this->add('PUT', $p, $h, $scope);
     }
 
-    public function delete(string $p, mixed $h): void
+    public function delete(string $p, mixed $h, ?string $scope = null): void
     {
-        $this->add('DELETE', $p, $h);
+        $this->add('DELETE', $p, $h, $scope);
     }
 
     /** 任意方法都匹配 */
-    public function any(string $p, mixed $h): void
+    public function any(string $p, mixed $h, ?string $scope = null): void
     {
-        $this->add('ANY', $p, $h);
+        $this->add('ANY', $p, $h, $scope);
     }
 
     public function dispatch(Request $req): void
@@ -69,6 +70,13 @@ class Router
                 continue;
             }
             $params = array_filter($m, 'is_string', ARRAY_FILTER_USE_KEY);
+            // 按 API Key 的 scope 做路由级授权（* 或未设置表示不限）
+            try {
+                Auth::requireScope($route['scope'] ?? null);
+            } catch (AuthException $e) {
+                Response::unauthorized($e->getMessage());
+                return;
+            }
             $this->invoke($route['handler'], $params, $req);
             return;
         }

@@ -166,6 +166,7 @@ class MailboxService
                     throw new RuntimeException('指定的发件邮箱不存在或已禁用: #' . $id);
                 }
                 $this->assertQuota($row);
+                $this->reserve($row);
                 return $row;
             }
 
@@ -175,6 +176,7 @@ class MailboxService
                     throw new RuntimeException('指定的发件邮箱不存在或已禁用: ' . $email);
                 }
                 $this->assertQuota($row);
+                $this->reserve($row);
                 return $row;
             }
 
@@ -197,6 +199,7 @@ class MailboxService
             if (!$row) {
                 throw new RuntimeException('没有可用的发件邮箱：可能全部被禁用或已达每日限额');
             }
+            $this->reserve($row);
             return $row;
         });
     }
@@ -213,25 +216,44 @@ class MailboxService
         }
     }
 
-    /** 发送成功后累加计数（sent_total 是智能选箱的核心依据） */
-    public function recordSuccess(int $id): void
+    /**
+     * 在选箱事务内原子预占一个名额。
+     *
+     * 只 SELECT ... FOR UPDATE 而不改计数，会串行化读却不让排序依据变化：
+     * 并发/批量入队时所有请求看到同一个 sent_total，最终全选同一个邮箱，
+     * daily_limit 也会被瞬时突破。预占后排序与配额立即生效，失败由 recordFailure 回补。
+     */
+    private function reserve(array $row): void
     {
         $this->db->query(
             "UPDATE `{$this->table}`
              SET sent_total = sent_total + 1,
                  sent_today = IF(quota_date = CURDATE(), sent_today + 1, 1),
-                 quota_date = CURDATE(),
-                 last_used_at = NOW(),
-                 last_error = NULL
+                 quota_date = CURDATE()
              WHERE id = ?",
+            [(int) $row['id']]
+        );
+    }
+
+    /** 发送成功：计数已在 selectForSend 预占，这里只更新使用时间 */
+    public function recordSuccess(int $id): void
+    {
+        $this->db->query(
+            "UPDATE `{$this->table}` SET last_used_at = NOW(), last_error = NULL WHERE id = ?",
             [$id]
         );
     }
 
     public function recordFailure(int $id, string $error): void
     {
+        // 预占的名额要退回，否则失败邮件也会占用每日配额与选箱排序
         $this->db->query(
-            "UPDATE `{$this->table}` SET fail_total = fail_total + 1, last_used_at = NOW(), last_error = ? WHERE id = ?",
+            "UPDATE `{$this->table}`
+             SET fail_total = fail_total + 1,
+                 sent_total = GREATEST(sent_total - 1, 0),
+                 sent_today = IF(quota_date = CURDATE(), GREATEST(sent_today - 1, 0), sent_today),
+                 last_used_at = NOW(), last_error = ?
+             WHERE id = ?",
             [mb_substr($error, 0, 1000), $id]
         );
     }

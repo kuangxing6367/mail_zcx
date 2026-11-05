@@ -1,7 +1,7 @@
 # ZC Mail Service · API 文档
 
 - **Base URL**：`https://mail.example.com/api/v1`（替换为你自己的部署域名）
-- **鉴权**：请求头 `X-API-Key: <key>`（也支持 `X-ZC-Key`、`?api_key=`、`Authorization: Bearer`）
+- **鉴权**：请求头 `X-API-Key: <key>`（也支持 `X-ZC-Key`、`Authorization: Bearer`；出于安全考虑不再接受 `?api_key=`）
 - **入参**：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data` 均可
 - **方法覆盖**：表单或 JSON 中传 `_method=PUT` 可让 POST 走 PUT 路由
 - **统一响应**：
@@ -27,7 +27,7 @@
 
 ## 1. 发信
 
-### `POST /send` · `GET /send`
+### `POST /send`
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -313,13 +313,28 @@ Content-Type: application/json
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/keys` | 列表（key/secret 脱敏） |
+| `GET` | `/keys` | 列表（key/secret 脱敏，摘要不返回） |
 | `POST` | `/keys` | 新建，**明文仅此一次返回** |
-| `PUT` / `POST` | `/keys/{id}` | 修改 `name` / `status` / `allow_ips` / `rate_limit` / `expires_at` |
+| `PUT` / `POST` | `/keys/{id}` | 修改 `name` / `status` / `allow_ips` / `rate_limit` / `expires_at` / `scopes` |
 | `DELETE` | `/keys/{id}` | 删除 |
 | `POST` | `/keys/{id}/rotate` | 轮换密钥 |
 
-新建参数：`name`、`allow_ips`（如 `1.2.3.4,192.168.1.*`）、`rate_limit`（每分钟上限，0=不限）、`expires_at`。
+新建参数：`name`、`scopes`、`allow_ips`（如 `1.2.3.4,192.168.1.*,10.0.0.0/8`）、
+`rate_limit`（每分钟上限，0=不限）、`expires_at`、可选 `api_key`（自定义时**至少 32 字符**）。
+
+`scopes` 为逗号分隔的权限名，缺省 `*`：
+
+| scope | 覆盖接口 |
+|---|---|
+| `send` | `/send` |
+| `logs` | `/logs`、`/logs/stats`、`/logs/{id}` |
+| `mailboxes` | `/mailboxes*` |
+| `templates` | `/templates*` |
+| `webhooks` | `/webhooks*`、`/hook/events` |
+| `keys` | `/keys*` |
+
+越权返回 `401 当前 API Key 缺少权限: <scope>`。
+数据库只保存 `sha256(api_key)`；`api_key` 字段仅存脱敏串，**丢失后无法找回，只能轮换**。
 
 ---
 
@@ -328,8 +343,20 @@ Content-Type: application/json
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.0.0", "php": "8.2.33", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.0.0", "time": "2026-10-13T20:49:26+08:00" } }
 ```
+
+默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。
+
+---
+
+## 8. 入站 Webhook
+
+`POST /api/v1/hook/inbound`（免 API Key，但必须签名）：
+
+- 先在 `config.local.php` 配置 `security.inbound_secret`，**留空时该接口返回 403**；
+- 请求头 `X-ZC-Signature: sha256=<hmac_sha256(raw_body, inbound_secret)>`，校验失败返回业务错误；
+- 只接受 `POST`（`GET` 返回 405），避免被浏览器预取或 CSRF 触发写入。
 
 ---
 

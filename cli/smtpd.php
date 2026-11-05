@@ -104,6 +104,14 @@ final class SmtpSession
             }
         }
 
+        // 入站 IP 白名单（在 PROXY 解析之后判断，拿到的才是真实客户端 IP）
+        $allowIps = (array) ($this->cfg['allow_ips'] ?? []);
+        if ($allowIps && !$this->ipAllowed($this->peerIp, $allowIps)) {
+            Logger::warning('SMTP 入站 IP 不在白名单', ['ip' => $this->peerIp]);
+            $this->reply('554', '5.7.1 Access denied');
+            return;
+        }
+
         $this->reply('220', $this->hostname() . ' ESMTP ZC Mail');
 
         while (true) {
@@ -447,22 +455,22 @@ final class SmtpSession
             return false;
         }
 
-        // 允许任意用户名，密码必须是对应状态正常的 API Key
+        // 允许任意用户名，密码必须是对应状态正常的 API Key（库中只存摘要，复用 Auth 的哈希比对）
         try {
-            $db  = Database::instance();
-            $row = $db->fetch(
-                'SELECT * FROM `' . $db->table('api_keys') . '` WHERE api_key = ? LIMIT 1',
-                [$pass]
-            );
+            $row = \App\Core\Auth::verifyKeyOnly($pass, (string) $this->peerIp);
         } catch (\Throwable $e) {
-            Logger::error('SMTP AUTH 查询失败: ' . $e->getMessage());
+            Logger::error('SMTP AUTH 校验失败: ' . $e->getMessage());
             return false;
         }
 
-        if (!$row || (int) $row['status'] !== 1) {
+        if (!$row) {
             return false;
         }
-        if (!empty($row['expires_at']) && strtotime((string) $row['expires_at']) < time()) {
+
+        // Key 级 scope 不含 send 时，不允许通过 SMTP 发信
+        $scopes = array_filter(array_map('trim', preg_split('/[,|\s]+/', (string) ($row['scopes'] ?? '*')) ?: []));
+        if ($scopes && !in_array('*', $scopes, true) && !in_array('send', $scopes, true)) {
+            Logger::warning('SMTP AUTH 被拒：Key 缺少 send 权限', ['key_id' => $row['id']]);
             return false;
         }
 
@@ -473,6 +481,44 @@ final class SmtpSession
     {
         $this->mailFrom = null;
         $this->rcptTo   = [];
+    }
+
+    /** 支持精确 IP、192.168.1.* 通配与 10.0.0.0/8 CIDR */
+    private function ipAllowed(string $ip, array $rules): bool
+    {
+        if ($ip === '') {
+            return false;
+        }
+        foreach ($rules as $rule) {
+            $rule = trim((string) $rule);
+            if ($rule === '') {
+                continue;
+            }
+            if ($rule === '*') {
+                return true;
+            }
+            if (str_contains($rule, '/')) {
+                [$subnet, $bits] = array_pad(explode('/', $rule, 2), 2, '');
+                $ipLong     = ip2long($ip);
+                $subnetLong = ip2long($subnet);
+                $bits       = (int) $bits;
+                if ($ipLong !== false && $subnetLong !== false && $bits >= 0 && $bits <= 32) {
+                    $mask = $bits === 0 ? 0 : (-1 << (32 - $bits));
+                    if (($ipLong & $mask) === ($subnetLong & $mask)) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            if (str_contains($rule, '*')) {
+                if (preg_match('#^' . str_replace('\*', '.*', preg_quote($rule, '#')) . '$#', $ip)) {
+                    return true;
+                }
+            } elseif ($rule === $ip) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

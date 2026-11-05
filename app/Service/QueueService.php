@@ -95,7 +95,10 @@ class QueueService
         ], 'id = :id', ['id' => $jobId]);
     }
 
-    /** 标记需重试：attempts +1，并推后 next_attempt_at */
+    /**
+     * 标记需重试：attempts +1，并推后 next_attempt_at
+     * 只允许从 processing/pending 回退，绝不把已 done/failed 的任务重新激活
+     */
     public function markRetry(int $jobId, string $error, int $nextDelaySec): void
     {
         $this->db->query(
@@ -103,25 +106,38 @@ class QueueService
              SET status = 'pending', attempts = attempts + 1,
                  last_error = ?, next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
                  reserved_at = NULL, reserved_by = ''
-             WHERE id = ?",
+             WHERE id = ? AND status IN ('processing','pending')",
             [mb_substr($error, 0, 2000), max(1, $nextDelaySec), $jobId]
         );
     }
 
-    /** 回收卡死任务（processing 超过阈值），返回回收数量 */
-    public function reclaim(int $stuckSeconds): int
+    /**
+     * 回收卡死任务（processing 超过阈值）
+     * 超过最大尝试次数的直接置 failed，避免无限回收
+     */
+    public function reclaim(int $stuckSeconds, int $maxAttempts = 3): int
     {
-        return $this->db->update(
-            'send_jobs',
-            [
-                'status'          => 'pending',
-                'reserved_at'     => null,
-                'reserved_by'     => '',
-                'next_attempt_at' => date('Y-m-d H:i:s'),
-            ],
-            "status = 'processing' AND reserved_at IS NOT NULL AND reserved_at < NOW() - INTERVAL {$stuckSeconds} SECOND",
-            []
+        $stuck = "status = 'processing' AND reserved_at IS NOT NULL
+                  AND reserved_at < NOW() - INTERVAL " . max(1, $stuckSeconds) . " SECOND";
+
+        // 1) 已用尽重试次数 → 终结
+        $this->db->query(
+            "UPDATE `{$this->table}`
+             SET status = 'failed',
+                 last_error = CONCAT('投递超时且已达最大重试次数（attempts=', attempts, '）'),
+                 finished_at = NOW(), reserved_at = NULL, reserved_by = ''
+             WHERE {$stuck} AND attempts >= ?",
+            [max(1, $maxAttempts)]
         );
+
+        // 2) 还有机会的任务退回 pending，并计一次尝试，防止无限回收
+        return $this->db->query(
+            "UPDATE `{$this->table}`
+             SET status = 'pending', attempts = attempts + 1,
+                 reserved_at = NULL, reserved_by = '', next_attempt_at = NOW()
+             WHERE {$stuck} AND attempts < ?",
+            [max(1, $maxAttempts)]
+        )->rowCount();
     }
 
     /** 队列积压数量（pending + processing），供仪表盘展示 */

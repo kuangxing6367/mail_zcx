@@ -116,7 +116,7 @@ while (true) {
     $rounds++;
 
     // 回收卡死任务（worker 崩溃 / 进程被杀）
-    $reclaimed = $queue->reclaim($stuckTimeout);
+    $reclaimed = $queue->reclaim($stuckTimeout, $maxAttempts);
     if ($reclaimed > 0) {
         worker_out("回收卡死任务 {$reclaimed} 个", true);
     }
@@ -141,6 +141,10 @@ while (true) {
             $result = $mailer->deliver($payload);
 
             if ($result['status'] === 'success') {
+                // 顺序很关键：先写日志/计数（关键副作用），再 markDone，最后派发回调。
+                // 反过来的话，回调异常会把 done 改回 pending 造成重复投递；
+                // 进程若在中途崩溃，reclaim 也只会回收 processing 状态的任务。
+                $mailer->finalizeLog($payload, $result);
                 $queue->markDone(
                     $jobId,
                     (string) $result['smtp_code'],
@@ -148,7 +152,15 @@ while (true) {
                     (string) ($result['error'] ?? ''),
                     (int) $result['duration_ms']
                 );
-                $mailer->finalize($payload, $result);
+                try {
+                    $mailer->finalizeCallback($payload, $result);
+                } catch (\Throwable $e) {
+                    // 邮件已投递，回调失败只记录，不重试整封邮件
+                    \App\Core\Logger::error('回调派发失败（投递已完成）: ' . $e->getMessage(), [
+                        'job_id' => $jobId,
+                        'log_id' => (int) $payload['log_id'],
+                    ]);
+                }
                 worker_out("job#{$jobId} 投递成功 log#{$payload['log_id']} ({$result['duration_ms']}ms)");
             } else {
                 worker_retry_or_fail($queue, $mailer, $jobId, $payload, $result, $attempts, $maxAttempts, $retryBase);

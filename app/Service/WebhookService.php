@@ -267,14 +267,19 @@ class WebhookService
      */
     public function receive(Request $req, array $opts = []): array
     {
+        $secret = (string) ($opts['secret'] ?? '');
+        if ($secret === '') {
+            // 未配置 inbound_secret 时接口必须关闭，否则任何人都能写入事件并触发转发
+            throw new RuntimeException('入站 Webhook 未启用（security.inbound_secret 为空）');
+        }
+
         $source    = (string) ($opts['source'] ?? $req->header('x-zc-source') ?? 'external');
-        $secret    = (string) ($opts['secret'] ?? '');
         $signature = (string) ($req->header(Config::get('webhook.sign_header', 'X-ZC-Signature')) ?? '');
 
         $raw = $req->rawBody !== '' ? $req->rawBody : json_encode($req->all(), JSON_UNESCAPED_UNICODE);
-        $verified = $secret !== '' ? Crypto::verify($raw, $signature, $secret) : false;
+        $verified = Crypto::verify($raw, $signature, $secret);
 
-        if ($secret !== '' && !$verified) {
+        if (!$verified) {
             throw new RuntimeException('入站事件签名校验失败');
         }
 
@@ -322,6 +327,12 @@ class WebhookService
 
     private function httpPost(string $url, string $body, array $headers, int $timeout): array
     {
+        // 所有出站回调（配置的 webhook、按次 callback_url、测试）都必须过这道门
+        self::assertSafeUrl($url);
+
+        $verifyTls  = (bool) Config::get('webhook.verify_tls', true);
+        $follow     = (bool) Config::get('webhook.follow_redirect', false);
+
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
             curl_setopt_array($ch, [
@@ -331,10 +342,12 @@ class WebhookService
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => $timeout,
                 CURLOPT_CONNECTTIMEOUT => max(2, min(3, $timeout)),
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => 0,
-                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_SSL_VERIFYPEER => $verifyTls,
+                CURLOPT_SSL_VERIFYHOST => $verifyTls ? 2 : 0,
+                CURLOPT_FOLLOWLOCATION => $follow,
                 CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
                 CURLOPT_USERAGENT      => (string) Config::get('webhook.user_agent', 'ZC-Mail-Service'),
             ]);
             $resp = curl_exec($ch);
@@ -352,8 +365,10 @@ class WebhookService
                 'content'       => $body,
                 'timeout'       => $timeout,
                 'ignore_errors' => true,
+                'follow_location' => $follow ? 1 : 0,
+                'max_redirects' => 3,
             ],
-            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+            'ssl' => ['verify_peer' => $verifyTls, 'verify_peer_name' => $verifyTls],
         ]);
         $resp = @file_get_contents($url, false, $ctx);
         $code = 0;
@@ -361,6 +376,77 @@ class WebhookService
             $code = (int) $m[1];
         }
         return ['code' => $code, 'body' => (string) $resp, 'error' => $resp === false ? 'request failed' : ''];
+    }
+
+    /**
+     * 回调地址安全校验：只允许 http/https，且不得指向回环/私网/链路本地/保留地址
+     * @throws RuntimeException
+     */
+    public static function assertSafeUrl(string $url): void
+    {
+        $url = trim($url);
+        if ($url === '') {
+            throw new RuntimeException('回调地址为空');
+        }
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new RuntimeException('回调地址格式不正确');
+        }
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            throw new RuntimeException('回调地址只支持 http/https');
+        }
+        if ((bool) Config::get('webhook.allow_private_hosts', false)) {
+            return;
+        }
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            throw new RuntimeException('回调地址缺少主机名');
+        }
+
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            foreach ((array) @dns_get_record($host, DNS_A | DNS_AAAA) as $rec) {
+                if (!empty($rec['ip'])) {
+                    $ips[] = (string) $rec['ip'];
+                }
+                if (!empty($rec['ipv6'])) {
+                    $ips[] = (string) $rec['ipv6'];
+                }
+            }
+            if (!$ips) {
+                $ip = @gethostbyname($host);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $ips[] = $ip;
+                }
+            }
+        }
+        if (!$ips) {
+            throw new RuntimeException('回调地址域名无法解析');
+        }
+        foreach ($ips as $ip) {
+            if (!self::isPublicIp($ip)) {
+                throw new RuntimeException('回调地址指向内网/保留地址，已拒绝');
+            }
+        }
+    }
+
+    private static function isPublicIp(string $ip): bool
+    {
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        // NO_PRIV_RANGE 覆盖 10/8、172.16/12、192.168/16；NO_RES_RANGE 覆盖 0/8、127/8、169.254/16、224/4 等
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+        foreach (['127.', '169.254.', '::1', 'fc', 'fd', 'fe80'] as $prefix) {
+            if (stripos($ip, $prefix) === 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function decodeHeaders(mixed $raw): array
@@ -387,8 +473,8 @@ class WebhookService
         if ($isCreate && empty($row['url'])) {
             throw new RuntimeException('缺少必填字段: url');
         }
-        if (isset($row['url']) && !filter_var($row['url'], FILTER_VALIDATE_URL)) {
-            throw new RuntimeException('回调地址格式不正确');
+        if (isset($row['url'])) {
+            self::assertSafeUrl((string) $row['url']);
         }
         if (isset($row['headers']) && is_array($row['headers'])) {
             $row['headers'] = json_encode($row['headers'], JSON_UNESCAPED_UNICODE);

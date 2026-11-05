@@ -111,16 +111,53 @@ foreach ($statements as $stmt) {
 }
 out("表结构导入完成（执行 {$ok} 条语句）");
 
+// ---- 增量迁移（老库升级，幂等） ----
+$migrations = [
+    'api_key_hash' => "ALTER TABLE `{$prefix}api_keys` ADD COLUMN `api_key_hash` CHAR(64) DEFAULT NULL COMMENT 'sha256(api_key)' AFTER `api_key`, ADD UNIQUE KEY `uk_hash` (`api_key_hash`)",
+    'scopes'       => "ALTER TABLE `{$prefix}api_keys` ADD COLUMN `scopes` VARCHAR(255) NOT NULL DEFAULT '*' COMMENT '逗号分隔权限，*=全部' AFTER `api_key_hash`",
+];
+foreach ($migrations as $col => $ddl) {
+    $exists = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$prefix}api_keys' AND COLUMN_NAME = '{$col}'"
+    )->fetchColumn();
+    if (!$exists) {
+        $pdo->exec($ddl);
+        out("迁移：新增列 {$col}");
+    }
+}
+// 老库中未哈希的明文 Key 回填摘要（鉴权时会自动迁移为脱敏串）
+$backfilled = $pdo->exec(
+    "UPDATE `{$prefix}api_keys` SET api_key_hash = SHA2(api_key, 256)
+     WHERE (api_key_hash IS NULL OR api_key_hash = '') AND api_key LIKE 'zc!_%' ESCAPE '!'"
+);
+if ($backfilled) {
+    out("迁移：回填 {$backfilled} 条 API Key 摘要");
+    // 摘要已就绪后，把残留明文替换为脱敏展示串
+    $masked = $pdo->exec(
+        "UPDATE `{$prefix}api_keys`
+         SET api_key = CONCAT(LEFT(api_key, 8), '******', RIGHT(api_key, 4))
+         WHERE api_key_hash IS NOT NULL AND api_key NOT LIKE '%*%'"
+    );
+    if ($masked) {
+        out("迁移：脱敏 {$masked} 条 API Key 明文");
+    }
+}
+
 // ---- 校验 ----
 $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
 out('当前库内表 (' . count($tables) . '): ' . implode(', ', $tables));
 
 // ---- 输出默认密钥 ----
 $key = $pdo->query("SELECT api_key FROM `{$prefix}api_keys` ORDER BY id ASC LIMIT 1")->fetchColumn();
-if ($key) {
+if (is_string($key) && $key !== '' && !str_contains($key, '*')) {
     out('');
     out('默认 API Key: ' . $key);
-    out('请妥善保存，生产环境请通过 POST /api/v1/keys/{id}/rotate 轮换。');
+    out('请妥善保存（数据库只存摘要，丢失后无法找回，只能轮换）。');
+} elseif ($key) {
+    out('');
+    out('默认 API Key 已哈希存储（当前仅剩脱敏串：' . $key . '）。');
+    out('如已遗失，请用 POST /api/v1/keys/{id}/rotate 轮换，或直接重置该行 api_key_hash。');
 }
 
 // ---- 检查关键配置 ----

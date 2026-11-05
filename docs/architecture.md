@@ -47,17 +47,18 @@ COMMIT;
 
 `daily_limit` 的跨天重置基于 `quota_date`：命中新日期时把 `sent_today` 归零，不需要定时任务。
 
-> 队列模式下，选箱发生在**入队时**（`prepare()`），`sent_total` 要等 worker 投递成功才累加。
-> 因此同一批入队的邮件可能选到同一个邮箱；配额上限也按入队时的快照判断。
-> 若需要严格实时配额，应关闭队列或在业务侧串行提交。
+> 队列模式下选箱发生在**入队时**（`prepare()`），但选中后会在同一事务内**原子预占**
+> `sent_total` 与 `sent_today`，所以并发 / 批量入队不会全部选到同一个邮箱，
+> `daily_limit` 也不会被瞬时突破。投递失败时 `recordFailure()` 会把预占退回。
+> 语义仍是 **at-least-once**：worker 在「SMTP 已投递、尚未 markDone」之间崩溃，会重投一次。
 
 ## 凭据加密
 
-SMTP 密码使用 AES-256-GCM（`openssl_encrypt`），密钥由 `app_secret` 经 HKDF 派生，
-随机 IV 与 tag 一并存入数据库。输出格式：
+SMTP 密码使用 AES-256-GCM（`openssl_encrypt`），密钥为 `sha256(app_secret)` 的 32 字节原始摘要。
+随机 IV、tag 和密文拼成**一个** base64 串，整体带 `enc:` 前缀：
 
 ```
-base64(iv) . '.' . base64(tag) . '.' . base64(ciphertext)
+enc:<base64(iv[12] | tag[16] | ciphertext)>
 ```
 
 GCM 自带完整性校验，密文被篡改会解密失败而非静默出错。
@@ -74,19 +75,23 @@ X-ZC-Signature: sha256=<hex(hmac_sha256(raw_body, secret))>
 接收方必须对**原始字节**计算 HMAC（不要先 `json_decode` 再 `json_encode`，字段顺序与空格会变）。
 签名密钥来自 Webhook 配置的 `secret`，为空时不签名 —— 生产环境应当强制配置。
 
-投递失败按配置重试，每次尝试都写入 `zc_webhook_deliveries`，含 HTTP 状态码与响应体前若干字节。
+投递失败按配置重试。**每个 target 一条** `zc_webhook_deliveries` 记录，重试时累加 `attempts`、
+更新最后一次的 HTTP 状态码与响应体前若干字节（不是每次尝试新增一行）。
 队列模式下 Webhook 由 worker 进程触发，不占用任何 Web 请求的 worker。
 
 ## 鉴权与限流
 
 `Auth::authenticate()` 依次检查：
 
-1. 从 `X-API-Key` / `X-ZC-Key` / `?api_key=` / `Authorization: Bearer` 提取 Key；
-2. 查库校验 `status`、`expires_at`；
-3. 匹配 `allow_ips`（支持 `192.168.1.*` 通配）与全局 `security.allow_ips`；
-4. 按 `rate_limit` 做分钟级计数（文件缓存，键为 key_id + 分钟）。
+1. 只从请求头提取 Key：`X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`（不再接受 `?api_key=`，避免进访问日志与 Referer）；
+2. 按 `sha256(key)` 查 `api_key_hash` 比对 —— 库中不存明文，老库里的明文在首次成功鉴权时自动迁移并替换为脱敏串；
+3. 校验 `status`、`expires_at`、Key 级 `allow_ips`（支持 `192.168.1.*` 与 `10.0.0.0/8`）以及全局 `security.allow_ips`；
+4. 按 Key 的 `scopes` 做**路由级授权**：`send` / `logs` / `mailboxes` / `templates` / `webhooks` / `keys`，`*` 表示全部。旧 Key 默认 `*`；
+5. 按 `rate_limit` 做分钟级计数（文件 + `flock` 原子递增，旧文件自动清理）；
+6. 同一 IP 在 `auth_fail_window` 内失败达到 `auth_fail_limit` 次后临时锁定。
 
-失败统一返回 401 + 明确原因，不区分「Key 不存在」与「Key 禁用」，避免枚举。
+所有鉴权失败对外统一返回 `API Key 无效`，具体原因（不存在 / 禁用 / 过期 / IP 不符）只写服务端日志，避免枚举。
+客户端 IP 只在直连方命中 `security.trusted_proxies` 时才采信 `X-Forwarded-For`，否则一律用 `REMOTE_ADDR`。
 
 ## 错误码约定
 

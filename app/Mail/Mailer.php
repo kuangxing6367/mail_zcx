@@ -319,6 +319,16 @@ class Mailer
      */
     public function finalize(array $payload, array $result): void
     {
+        $this->finalizeLog($payload, $result);
+        $this->finalizeCallback($payload, $result);
+    }
+
+    /**
+     * 阶段三之一：写日志与计数。
+     * 这是关键副作用，失败应由调用方重试；成功后队列才能标记 done。
+     */
+    public function finalizeLog(array $payload, array $result): void
+    {
         $logId     = (int) $payload['log_id'];
         $mailboxId = (int) $payload['mailbox_id'];
         $status    = (string) ($result['status'] ?? 'failed');
@@ -337,6 +347,17 @@ class Mailer
         } else {
             $this->mailboxes->recordFailure($mailboxId, (string) ($result['error'] ?? ''));
         }
+    }
+
+    /**
+     * 阶段三之二：状态回调。
+     * 非关键路径，回调失败不应把已投递成功的任务改回 pending。
+     */
+    public function finalizeCallback(array $payload, array $result): void
+    {
+        $logId     = (int) $payload['log_id'];
+        $mailboxId = (int) $payload['mailbox_id'];
+        $status    = (string) ($result['status'] ?? 'failed');
 
         // 状态回调
         $input          = (array) ($payload['input'] ?? []);
@@ -534,11 +555,30 @@ class Mailer
                     throw new InvalidArgumentException('附件 base64 内容解析失败: ' . $name);
                 }
             } elseif (!empty($att['path'])) {
+                // 服务端路径模式默认关闭：否则可把 config/config.local.php 当附件外发
+                if (!(bool) Config::get('mail.allow_path_attachment', false)) {
+                    throw new InvalidArgumentException(
+                        '附件不支持服务端路径，请改用 content（base64）；如需开启请配置 mail.allow_path_attachment 与 mail.attachment_roots'
+                    );
+                }
                 $path = (string) $att['path'];
                 if (!is_file($path) || !is_readable($path)) {
                     throw new InvalidArgumentException('附件文件不可读: ' . $path);
                 }
-                $data = (string) file_get_contents($path);
+                $real  = realpath($path);
+                $roots = (array) Config::get('mail.attachment_roots', []);
+                $allowed = false;
+                foreach ($roots as $root) {
+                    $rootReal = realpath((string) $root);
+                    if ($rootReal && $real && str_starts_with($real, rtrim($rootReal, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)) {
+                        $allowed = true;
+                        break;
+                    }
+                }
+                if (!$allowed) {
+                    throw new InvalidArgumentException('附件路径不在允许目录内: ' . $path);
+                }
+                $data = (string) file_get_contents($real);
             } else {
                 continue;
             }

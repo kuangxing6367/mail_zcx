@@ -4,11 +4,10 @@
  * 自动覆盖 config/config.php 中同名项
  */
 
-$secret = trim(@file_get_contents('/tmp/zc_app_secret_local') ?: '');
-if ($secret === '') {
-    // 兜底：从环境变量或固定值（首次部署后请改为随机值）
-    $secret = getenv('ZC_APP_SECRET') ?: '__APP_SECRET__';
-}
+// 根密钥：只从环境变量读取，不再从 /tmp 等共享目录读文件
+// （同机其他用户可预置 /tmp 文件 → 直接控制加密密钥）
+// 生成：openssl rand -hex 32
+$secret = (string) (getenv('ZC_APP_SECRET') ?: '__APP_SECRET__');
 
 return [
     'app' => [
@@ -30,12 +29,22 @@ return [
         'app_secret'      => $secret,
         'require_api_key' => true,
         'allow_ips'       => [],
-        // 'api_entry'    => '',   // 秘密入口前缀，详见 README「秘密入口」
+        // 只有 REMOTE_ADDR 命中此列表时才采信 X-Forwarded-For。套 CDN/反代时填其回源地址
+        'trusted_proxies' => ['127.0.0.1', '::1'],
+        'auth_fail_limit' => 10,     // 窗口内失败次数上限
+        'auth_fail_window'=> 600,    // 窗口秒数
+        // 'api_entry'    => '',     // 秘密入口前缀，详见 README「秘密入口」
+        // 'inbound_secret' => '',   // 入站 Webhook 签名密钥；留空 = /hook/inbound 关闭
+        // 'cors_origins'   => 'https://console.example.com',
     ],
     'mail' => [
         'selection'     => 'least_sent',
         'timeout'       => 15,   // 单步 SMTP 超时
         'total_timeout' => 30,   // 整条会话总时限，0 = 不限
+        'smtp_verify_tls' => true, // 自签名 SMTP 才设 false
+        // 附件走服务端路径（默认关闭）。开启后必须限定目录，否则可外发任意文件
+        // 'allow_path_attachment' => true,
+        // 'attachment_roots'      => ['/www/wwwroot/mail/storage/uploads'],
     ],
     // SMTP 入站：让只会说 SMTP 的老系统直接投递，不需要改成 HTTP 调用
     // 开启前必须：① nginx stream 把 25/587 转到 127.0.0.1:2525  ② 常驻跑 cli/worker.php
@@ -57,6 +66,9 @@ return [
         'async_fallback' => 'sync', // 非 FPM 环境：sync（显式同步）| skip（丢弃回调）
         'timeout'        => 5,
         'retry'          => 2,
+        'verify_tls'     => true,   // 出站回调必须校验证书
+        'follow_redirect'=> false,  // 跟随跳转会被用作 SSRF 跳板
+        // 'allow_private_hosts' => true, // 仅当回调接收端在内网时开启
     ],
     'log' => [
         'level' => 'info',

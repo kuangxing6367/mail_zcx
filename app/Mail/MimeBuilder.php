@@ -47,7 +47,7 @@ class MimeBuilder
 
     public function setReplyTo(string $email): self
     {
-        $this->replyTo = $email;
+        $this->replyTo = self::stripCrlf($email);
         return $this;
     }
 
@@ -89,14 +89,30 @@ class MimeBuilder
 
     public function addAttachment(string $name, string $data, string $mime = 'application/octet-stream'): self
     {
-        $this->attachments[] = ['name' => $name, 'data' => $data, 'mime' => $mime];
+        // 文件名与 MIME 都会拼进头部，必须去掉 CRLF 防止邮件头注入
+        $this->attachments[] = [
+            'name' => self::stripCrlf($name),
+            'data' => $data,
+            'mime' => self::stripCrlf($mime) ?: 'application/octet-stream',
+        ];
         return $this;
     }
 
     public function addHeader(string $key, string $value): self
     {
-        $this->headers[$key] = $value;
+        $key = trim(self::stripCrlf($key));
+        // 头字段名只允许 RFC 5322 的 token 字符
+        if ($key === '' || !preg_match('/^[A-Za-z0-9!#$%&\'*+\-.^_`|~]+$/', $key)) {
+            return $this;
+        }
+        $this->headers[$key] = self::stripCrlf($value);
         return $this;
+    }
+
+    /** 去掉 CR/LF，阻断邮件头注入 */
+    private static function stripCrlf(string $value): string
+    {
+        return trim(preg_replace('/[\r\n]+/', ' ', $value) ?? '');
     }
 
     /** 所有收件人（To + Cc + Bcc），用于 SMTP RCPT TO */

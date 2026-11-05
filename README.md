@@ -4,7 +4,7 @@
 
 用原生 PHP 实现了一套完整的发信基础设施：多邮箱 SMTP 池、模板渲染、HTTP API、Webhook 双向回调、
 发送日志与统计，外加一个纯静态的 Web 控制台。不需要 composer，不需要 PHPMailer，也不需要任何外部 SaaS ——
-丢到一台有 `pdo_mysql` + `openssl` 的机器上就能跑，数据和授权码全部留在自己手里。
+丢到一台 PHP ≥ 8.0（`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json` 五个扩展）的机器上就能跑，数据和授权码全部留在自己手里。
 
 适用场景：注册验证码、登录告警、订单通知、系统告警、批量触达等需要**由自己的服务端可控地发邮件**的业务。
 
@@ -35,7 +35,7 @@
 | 能力 | 说明 |
 |---|---|
 | **多邮箱管理** | 每个账号独立配置 SMTP 主机 / 端口 / 加密方式（465=SSL、587=STARTTLS、25=明文），密码 AES-256-GCM 加密落库 |
-| **智能选箱** | 默认选择**累计发件数最少**的邮箱；也可按权重 / 轮询 / 随机，或显式指定。选箱在事务内 `FOR UPDATE`，并发不重复派单 |
+| **智能选箱** | 默认选择**累计发件数最少**的邮箱；也可按权重 / 轮询 / 随机，或显式指定。选中即在事务内**原子预占**计数，并发不会全选同一邮箱 |
 | **HTTP API** | 全 REST 语义，JSON 与表单混合入参，`_method` 可覆盖；统一响应格式与错误码 |
 | **API Key 鉴权** | Header / Query / Bearer 三种携带方式，支持 IP 白名单（通配）、分钟级限流与有效期 |
 | **邮件模板** | `{{变量}}` 渲染（含点号路径），HTML + 纯文本双版本，未匹配变量可追踪 |
@@ -228,7 +228,7 @@ BASE=https://mail.example.com
 curl -H "X-API-Key: zc_xxxxxxxx" $BASE/api/v1/mailboxes
 
 # 也支持 query 参数
-curl "$BASE/api/v1/mailboxes?api_key=zc_xxxxxxxx"
+curl -H "X-API-Key: zc_xxxxxxxx" "$BASE/api/v1/mailboxes"
 
 # 也支持 Bearer
 curl -H "Authorization: Bearer zc_xxxxxxxx" $BASE/api/v1/mailboxes
@@ -330,7 +330,9 @@ curl -X POST $BASE/api/v1/mailboxes \
 | `weight` | `sent_total / weight` 最小优先，权重越大越常被选中 |
 | `random` | 随机 |
 
-选箱在数据库事务内 `SELECT ... FOR UPDATE`，并发下不会重复派给同一邮箱。
+选箱在数据库事务内 `SELECT ... FOR UPDATE` 后**立即原子预占** `sent_total` / `sent_today`，
+并发与批量入队会自然分散到不同邮箱；投递失败会把预占退回。语义为 **at-least-once**：
+worker 在「SMTP 已投递、尚未标记完成」之间崩溃时，该封邮件会重投一次。
 每个邮箱可设 `daily_limit`，超限自动跳过。
 
 ---
@@ -354,14 +356,25 @@ $data = json_decode($raw, true);   // ['event'=>'success','data'=>[...]]
 ## 安全建议
 
 1. **改掉默认 API Key**：安装后立即在控制台轮换（`POST /api/v1/keys/{id}/rotate`）。
+   库里只存 `sha256(key)`，丢失后无法找回，只能轮换。
 2. **设置强 `app_secret`**：用于加密 SMTP 密码，泄露等于泄露所有邮箱授权码。
-3. **限制 IP**：给 Key 配置 `allow_ips`，或设全局 `security.allow_ips`。
-4. **生产关调试**：`app.debug = false`（默认已关闭），避免异常堆栈外泄。
-5. **上 HTTPS**：邮箱授权码通过 API 明文传输，务必套 TLS。
-6. **别把 `config.local.php` 提交到公开仓库**。
-7. **反代/CDN 前先验证 API 可达**：若套 Cloudflare，注意 Bot Fight Mode / 托管质询会拦截
-   **服务端**调用（curl 会拿到 HTML 质询页而不是 JSON）。请对 `/api/*` 配置 WAF 跳过规则，
-   或关闭 API 域的浏览器完整性检查。
+   从环境变量 `ZC_APP_SECRET` 注入，不要写在代码或 `/tmp` 文件里。
+3. **按需发 scope**：给调用方的 Key 只配它需要的权限（`send` / `logs` / `mailboxes` /
+   `templates` / `webhooks` / `keys`），不要一律用 `*`。发信 Key 不应该能改邮箱、删密钥。
+4. **限制 IP**：给 Key 配置 `allow_ips`，或设全局 `security.allow_ips`（支持 `10.0.0.0/8`）。
+   注意 `security.trusted_proxies` 只填你自己的反代地址，否则 `X-Forwarded-For` 可伪造。
+5. **生产关调试**：`app.debug = false`（默认已关闭），避免异常堆栈外泄。
+6. **上 HTTPS**：邮箱授权码通过 API 明文传输，务必套 TLS。
+7. **别把 `config.local.php` 提交到公开仓库**。
+8. **入站 Webhook 默认是关的**：启用前必须配 `security.inbound_secret`，
+   否则 `/api/v1/hook/inbound` 返回 403。该接口的签名校验不能被跳过。
+9. **出站回调有 SSRF 防护**：只允许 `http/https`，默认拒绝回环 / 私网 / 链路本地地址，
+   默认不跟随 3xx、默认校验证书。接收端在内网时才能开 `webhook.allow_private_hosts`。
+10. **附件不要用服务端路径**：`attachments[].path` 默认禁用。开启后必须在
+    `mail.attachment_roots` 限定目录，否则可把 `config/config.local.php` 当附件发出去。
+11. **反代/CDN 前先验证 API 可达**：若套 Cloudflare，注意 Bot Fight Mode / 托管质询会拦截
+    **服务端**调用（curl 会拿到 HTML 质询页而不是 JSON）。请对 `/api/*` 配置 WAF 跳过规则，
+    或关闭 API 域的浏览器完整性检查。
 
 ---
 

@@ -144,17 +144,20 @@ CREATE TABLE IF NOT EXISTS `zc_inbound_events` (
 CREATE TABLE IF NOT EXISTS `zc_api_keys` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name`         VARCHAR(128) NOT NULL DEFAULT '',
-  `api_key`      VARCHAR(64)  NOT NULL,
-  `api_secret`   VARCHAR(128) NOT NULL DEFAULT ''          COMMENT '可选，用于签名调用',
+  `api_key`      VARCHAR(64)  NOT NULL                     COMMENT '仅存脱敏展示串，不参与鉴权',
+  `api_key_hash` CHAR(64)              DEFAULT NULL        COMMENT 'sha256(api_key)；老数据首次鉴权时自动回填',
+  `scopes`       VARCHAR(255) NOT NULL DEFAULT '*'         COMMENT '逗号分隔的权限：send,logs,mailboxes,templates,webhooks,keys；*=全部',
+  `api_secret`   VARCHAR(128) NOT NULL DEFAULT ''          COMMENT '保留字段，当前鉴权不使用',
   `status`       TINYINT      NOT NULL DEFAULT 1,
-  `allow_ips`    VARCHAR(1000) NOT NULL DEFAULT ''         COMMENT 'IP 白名单，逗号分隔，空=不限',
+  `allow_ips`    VARCHAR(1000) NOT NULL DEFAULT ''         COMMENT 'IP 白名单，逗号分隔，空=不限；支持通配与 CIDR',
   `rate_limit`   INT          NOT NULL DEFAULT 0           COMMENT '每分钟请求上限，0=不限',
   `expires_at`   DATETIME              DEFAULT NULL,
   `last_used_at` DATETIME              DEFAULT NULL,
   `use_count`    BIGINT       NOT NULL DEFAULT 0,
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_key` (`api_key`)
+  UNIQUE KEY `uk_hash` (`api_key_hash`),
+  KEY `idx_key` (`api_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='API 密钥';
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -164,8 +167,10 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- =============================================================
 
 -- 默认 API Key（请首次部署后立即在后台轮换）
-INSERT INTO `zc_api_keys` (`name`, `api_key`, `api_secret`, `status`, `rate_limit`)
-SELECT '默认密钥', CONCAT('zc_', REPLACE(UUID(), '-', '')), REPLACE(UUID(), '-', ''), 1, 0
+-- 默认密钥：api_key 保留明文仅用于首次安装时读取（首次鉴权后会自动替换为脱敏串）
+SET @zc_seed_key := CONCAT('zc_', REPLACE(UUID(), '-', ''));
+INSERT INTO `zc_api_keys` (`name`, `api_key`, `api_key_hash`, `scopes`, `api_secret`, `status`, `rate_limit`)
+SELECT '默认密钥', @zc_seed_key, SHA2(@zc_seed_key, 256), '*', '', 1, 0
 WHERE NOT EXISTS (SELECT 1 FROM `zc_api_keys`);
 
 -- 示例模板：验证码

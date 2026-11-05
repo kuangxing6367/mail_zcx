@@ -50,9 +50,11 @@ try {
     date_default_timezone_set((string) Config::get('app.timezone', 'Asia/Shanghai'));
     Logger::init();
 } catch (\Throwable $e) {
+    // 初始化异常可能包含数据库账号/路径，只写日志，不回显给客户端
+    @error_log('ZC Mail 初始化失败: ' . $e->getMessage());
     http_response_code(500);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['code' => 500, 'msg' => '初始化失败: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['code' => 500, 'msg' => '服务初始化失败，请检查配置文件与数据库连接'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -71,7 +73,17 @@ if ($apiEntry !== '') {
 }
 
 // ---- CORS ----
-header('Access-Control-Allow-Origin: *');
+$corsOrigins = trim((string) Config::get('security.cors_origins', '*'));
+if ($corsOrigins === '*' || $corsOrigins === '') {
+    header('Access-Control-Allow-Origin: *');
+} else {
+    $origin  = (string) ($req->header('origin') ?? '');
+    $allowed = array_map('trim', explode(',', $corsOrigins));
+    if ($origin !== '' && in_array($origin, $allowed, true)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Vary: Origin');
+    }
+}
 header('Access-Control-Allow-Headers: Content-Type, X-API-Key, X-ZC-Key, Authorization, X-ZC-Signature, X-Request-Id');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Max-Age: 86400');
@@ -85,12 +97,15 @@ RequestContext::initRequestId($req->header('x-request-id'));
 
 // ---- 健康检查（免鉴权） ----
 if ($req->path === '/' || $req->path === '/health') {
-    Response::ok([
+    $health = [
         'service' => Config::get('app.name'),
         'version' => Config::get('app.version'),
-        'php'     => PHP_VERSION,
         'time'    => date('c'),
-    ]);
+    ];
+    if (Config::get('app.health_detail', false)) {
+        $health['php'] = PHP_VERSION;
+    }
+    Response::ok($health);
     exit;
 }
 

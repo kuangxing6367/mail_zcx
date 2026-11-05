@@ -15,6 +15,8 @@ return [
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
+        // /health 是否返回 PHP 版本等细节；生产建议 false，减少指纹暴露
+        'health_detail' => false,
     ],
 
     'db' => [
@@ -32,12 +34,22 @@ return [
         'app_secret'      => 'change-me-to-a-random-64-char-string',
         // 是否强制 API Key 鉴权（生产必须 true）
         'require_api_key' => true,
-        // 全局 IP 白名单，空数组表示不限制；支持 192.168.1.* 通配
+        // 全局 IP 白名单，空数组表示不限制；支持 192.168.1.* 通配与 10.0.0.0/8 CIDR
         'allow_ips'       => [],
+        // 只有直连方（REMOTE_ADDR）命中此列表时才采信 X-Forwarded-For / CF-Connecting-IP。
+        // 反代或 CDN 在本地时保持默认；直连公网部署时不要放开，否则 IP 白名单可被伪造。
+        'trusted_proxies' => ['127.0.0.1', '::1'],
         // 全局每分钟请求上限，0 = 不限
         'rate_limit'      => 0,
-        // 时间戳容差（秒），用于可选的时间戳签名校验
+        // 鉴权失败锁定：窗口内失败达到 limit 次后，该 IP 在窗口内一律返回「API Key 无效」
+        'auth_fail_limit' => 10,
+        'auth_fail_window'=> 600,
+        // 时间戳容差（秒），保留字段，当前鉴权链路未使用
         'timestamp_window'=> 300,
+        // 入站 Webhook（/api/v1/hook/inbound）签名密钥；留空 = 该接口禁用（返回 403）
+        'inbound_secret'  => '',
+        // CORS 允许的来源：'*' 表示任意；生产可填具体域名（逗号分隔）
+        'cors_origins'    => '*',
         // 秘密入口前缀：非空时 API 挂载点变为 /<前缀>/api/v1，直接访问 /api/v1 返回 404
         // 例：设为 'x9m2kq' 后，真实接口为 https://域名/x9m2kq/api/v1/...；控制台需同步设置 API_ENTRY
         'api_entry'       => '',
@@ -51,11 +63,17 @@ return [
         // SMTP 一次投递含 connect/EHLO/STARTTLS/AUTH/MAIL/RCPT/DATA/QUIT 多步，
         // 若每步都可能等 15s，最坏会把请求挂到 90s+；这里给整条会话设总闸。
         'total_timeout'      => 30,
+        // SMTP 出站是否校验证书。自建/自签名服务器可设 false，公网邮箱必须保持 true
+        'smtp_verify_tls'    => true,
         'selection'          => 'least_sent', // 选箱策略: least_sent | round_robin | random | weight
         'max_recipients'     => 100,          // 单封邮件最大收件人总数
         'max_attachment_mb'  => 10,           // 单封邮件附件总大小上限(MB)
-        'smtp_keepalive'     => false,
+        'smtp_keepalive'     => false,        // 保留字段，当前未使用
         'log_payload'        => true,         // 是否把原始请求体落库
+        // 附件路径模式（attachments[].path）：默认关闭。开启后只允许读取下列目录内的文件，
+        // 否则会把服务器任意文件（含 config/config.local.php）当附件发出去。
+        'allow_path_attachment' => false,
+        'attachment_roots'      => [],       // 例：['/www/wwwroot/mail/storage/uploads']
 
         // ---- 异步发送队列（根治同步阻塞）----
         // enabled=true:  /api/v1/send 立即返回 202，发信由 cli/worker.php 后台执行
@@ -113,10 +131,18 @@ return [
         // shutdown function 会在响应发送前执行，注册它等于同步阻塞。
         // sync = 显式同步回调并记 warning（保证回调不丢）；skip = 直接丢弃回调。
         'async_fallback' => 'sync',           // sync | skip
+        // 出站回调 TLS 证书校验（生产必须 true）
+        'verify_tls'      => true,
+        // 是否跟随 3xx 跳转。跟随会成为 SSRF 绕过的跳板，默认关闭
+        'follow_redirect' => false,
+        // 是否允许回调到回环/私网/链路本地地址。内网自建接收端才需要开启
+        'allow_private_hosts' => false,
     ],
 
     'log' => [
         'file'  => __DIR__ . '/../storage/logs/app.log',
         'level' => 'debug',                   // debug | info | warning | error
+        // 是否允许 /logs/{id}?include_payload=1 回显原始请求体；默认 false
+        'return_payload' => false,
     ],
 ];

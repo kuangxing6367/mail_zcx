@@ -25,10 +25,13 @@ class Request
         $this->body    = $this->parseBody();
         $this->files   = $_FILES ?? [];
 
-        // _method 覆盖（放在 body 优先，其次 query）
+        // _method 覆盖：仅允许 POST 模拟 PUT/DELETE/PATCH，禁止用 GET 触发写操作
         $override = $this->body['_method'] ?? $this->query['_method'] ?? null;
-        if (is_string($override) && $override !== '') {
-            $this->method = strtoupper($override);
+        if ($this->method === 'POST' && is_string($override) && $override !== '') {
+            $override = strtoupper($override);
+            if (in_array($override, ['PUT', 'DELETE', 'PATCH'], true)) {
+                $this->method = $override;
+            }
         }
 
         $this->path = $this->resolvePath();
@@ -95,19 +98,78 @@ class Request
         return $this->headers[$key] ?? $default;
     }
 
-    /** 客户端真实 IP，兼容常见反代头 */
+    /** 客户端真实 IP：仅当直连方在 trusted_proxies 内时才采信转发头，否则一律用 REMOTE_ADDR */
     public function ip(): string
     {
-        foreach (['x-forwarded-for', 'x-real-ip', 'cf-connecting-ip'] as $h) {
-            $val = $this->header($h);
-            if ($val) {
-                $first = trim(explode(',', $val)[0]);
-                if ($first !== '') {
-                    return $first;
+        $remote  = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $trusted = (array) Config::get('security.trusted_proxies', ['127.0.0.1', '::1']);
+        if ($remote === '' || !self::ipInList($remote, $trusted)) {
+            return $remote;
+        }
+
+        $cf = trim((string) ($this->header('cf-connecting-ip') ?? ''));
+        if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) {
+            return $cf;
+        }
+
+        $xff = (string) ($this->header('x-forwarded-for') ?? '');
+        if ($xff !== '') {
+            $parts = array_map('trim', explode(',', $xff));
+            // 从右往左取第一个非可信地址，伪造的左侧值会被忽略
+            for ($i = count($parts) - 1; $i >= 0; $i--) {
+                $ip = $parts[$i];
+                if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                    continue;
                 }
+                if (self::ipInList($ip, $trusted)) {
+                    continue;
+                }
+                return $ip;
             }
         }
-        return (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+
+        $real = trim((string) ($this->header('x-real-ip') ?? ''));
+        if ($real !== '' && filter_var($real, FILTER_VALIDATE_IP)) {
+            return $real;
+        }
+
+        return $remote;
+    }
+
+    /** 支持精确 IP、192.168.* 通配与 CIDR */
+    private static function ipInList(string $ip, array $list): bool
+    {
+        foreach ($list as $rule) {
+            $rule = trim((string) $rule);
+            if ($rule === '') {
+                continue;
+            }
+            if ($rule === '*') {
+                return true;
+            }
+            if (str_contains($rule, '/')) {
+                [$subnet, $bits] = array_pad(explode('/', $rule, 2), 2, '');
+                $ipLong     = ip2long($ip);
+                $subnetLong = ip2long($subnet);
+                $bits       = (int) $bits;
+                if ($ipLong !== false && $subnetLong !== false && $bits >= 0 && $bits <= 32) {
+                    $mask = $bits === 0 ? 0 : (-1 << (32 - $bits));
+                    if (($ipLong & $mask) === ($subnetLong & $mask)) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            if (str_contains($rule, '*')) {
+                $regex = '#^' . str_replace('\*', '.*', preg_quote($rule, '#')) . '$#';
+                if (preg_match($regex, $ip)) {
+                    return true;
+                }
+            } elseif ($rule === $ip) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function userAgent(): string

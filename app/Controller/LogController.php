@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Core\Config;
 use App\Core\Request;
 use App\Core\Response;
 use App\Service\LogService;
@@ -33,6 +34,10 @@ class LogController extends BaseController
         if (!$row) {
             Response::notFound('日志不存在');
             return;
+        }
+        // payload 是原始请求体（可能含验证码、正文、附件 base64），默认不回显
+        if (!$req->bool('include_payload') || !Config::get('log.return_payload', false)) {
+            unset($row['payload']);
         }
         Response::ok($row);
     }
