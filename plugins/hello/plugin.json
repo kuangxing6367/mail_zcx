@@ -9,6 +9,6 @@
   "class": "Plugins\\Hello\\Plugin",
   "requires": {
     "php": ">=8.2",
-    "zcmail": ">=1.1.0"
+    "zcmail": ">=1.2.0"
   }
 }

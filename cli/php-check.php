@@ -18,6 +18,14 @@ $info = zc_php_requirement();
 echo '==> PHP ' . $info['version'] . '，运行基线检查通过'
     . '（语法门槛 ' . $info['syntax_min'] . '，部署基线 ' . $info['deploy_min'] . '）' . PHP_EOL;
 
+if ($info['baseline_as_of'] !== '') {
+    echo '==> 基线快照日期：' . $info['baseline_as_of']
+        . '（这是配置里的策略数据，不是自动更新：上游发新安全版 / 分支到期，'
+        . '请自行核对并改 config/config.php 的 security.php_baseline）' . PHP_EOL;
+} else {
+    echo '==> 未配置基线快照：本次只做了语法门槛检查。' . PHP_EOL;
+}
+
 if ($info['level'] === 'unknown') {
     echo '==> 提示：' . $info['reason'] . ' ' . $info['hint'] . PHP_EOL;
 }

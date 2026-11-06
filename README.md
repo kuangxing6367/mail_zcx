@@ -4,7 +4,11 @@
 
 用原生 PHP 实现了一套完整的发信基础设施：多邮箱 SMTP 池、模板渲染、HTTP API、Webhook 双向回调、
 发送日志与统计，外加一个纯静态的 Web 控制台。不需要 composer，不需要 PHPMailer，也不需要任何外部 SaaS ——
-丢到一台 PHP ≥ 8.2（`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json` 五个扩展）的机器上就能跑，数据和授权码全部留在自己手里。
+丢到一台 PHP ≥ 8.2 且为**安全修复版**（`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json` 五个扩展）的机器上就能跑，数据和授权码全部留在自己手里。
+
+> **部署前先看**：默认会拒绝在未达 PHP 安全基线的环境启动（Web `503` / CLI 非零退出）。
+> 判据是配置里的策略快照，**由部署者维护** —— 上游发新安全版、分支到期都自行核对更新，
+> 不是自动 feed。详见 [PHP 版本基线](https://mail.zgric.top/guide#php-版本基线)。
 
 适用场景：注册验证码、登录告警、订单通知、系统告警、批量触达等需要**由自己的服务端可控地发邮件**的业务。
 
@@ -76,7 +80,7 @@ app/
 config/
   config.php              # 主配置（可开源，不含凭据）
   config.local.php        # 环境覆盖（真实凭据，不入版本库）
-sql/schema.sql            # 建表语句（7 张表）
+sql/schema.sql            # 建表语句（8 张表）
 cli/
   install.php             # 一键建库建表
   worker.php              # 发信队列 worker（后台投递）
@@ -154,7 +158,7 @@ return [
 php cli/install.php
 ```
 
-执行成功会输出 7 张表清单和**默认 API Key**（仅显示一次，请立即保存，随后在控制台轮换）。
+执行成功会输出 8 张表清单和**默认 API Key**（仅显示一次，请立即保存，随后在控制台轮换）。
 
 ### 4. 配置 nginx
 
@@ -274,14 +278,17 @@ curl -X POST $BASE/api/v1/send \
 
 不传 `mailbox_id` 时，系统自动选择**发件量最少**的可用邮箱。
 
-默认队列模式下返回 **HTTP 202**，`data.status` 为 `queued`，只表示已入队：
+**默认是同步发信**（部署模板 `mail.queue.enabled = false`）：请求内完成 SMTP 投递，
+返回 `200` 且 `data.status` 为 `success`，不需要 worker，装完配好邮箱就能发：
 
 ```json
-{ "code": 0, "msg": "已加入发送队列...", "data": { "log_id": 12, "status": "queued", "check_url": "/api/v1/logs/12" } }
+{ "code": 0, "msg": "发送成功", "data": { "log_id": 12, "status": "success", "mailbox_id": 1 } }
 ```
 
-投递结果通过 `GET /api/v1/logs/12` 查询（`pending` → `success` / `failed`），
-或配置 `callback_url` / 全局 Webhook 接收终态。关闭队列则退回同步返回结果。
+只有手动打开异步队列后才返回 `202` + `status: "queued"`（只表示已入队，不代表已投递），
+此时**必须**让 worker 或 Web Cron 跑起来。
+两种模式的投递结果都可通过 `GET /api/v1/logs/12` 查询（`pending` → `success` / `failed`），
+或配置 `callback_url` / 全局 Webhook 接收终态。
 
 ### 用模板发送
 

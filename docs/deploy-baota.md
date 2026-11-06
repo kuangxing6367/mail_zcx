@@ -65,6 +65,29 @@ pdo_mysql   openssl   mbstring   curl   json
 放行前请实际核对：软件商店 → 已安装 → 该 PHP 分支的版本号，并确认升级后**已重启 PHP-FPM**
 （没重启的话旧 worker 仍在跑未修复的版本）。装了多个 PHP 分支时每个都要核对，只升一个不覆盖别的站点。
 
+::: danger 网页能开、worker 一启动就退出
+宝塔装了多个 PHP 分支时，网站用的 PHP-FPM 和命令行的 `php` **经常不是同一个二进制**：
+站点切到了 8.3.36，而 `php -v` 还是没升级的 8.3.6 / 7.4。表现是控制台和 `/health` 正常，
+但 `php cli/worker.php`、`php cli/smtpd.php`、计划任务里的 `zc-cron.php`
+一启动就打印「PHP 版本不满足运行基线」并退出，队列里的信永远停在 `pending`。
+
+分别验一次，且都用绝对路径：
+
+```bash
+which php && php -v
+/www/server/php/83/bin/php -v
+/www/server/php/83/bin/php cli/php-check.php
+```
+
+supervisor / 宝塔计划任务 / crontab 里把命令写成
+`/www/server/php/83/bin/php /www/wwwroot/你的域名/cli/worker.php`，别写裸 `php`。
+Web 侧实际版本可把 `app.health_detail` 设为 `true` 后从 `/health` 查看。
+:::
+
+基线判据本身是 `config/config.php` 的 `security.php_baseline` 快照，
+**归部署者维护**（上游发新安全版、8.2 于 2026-12-31 到期后都要自己核对更新），
+见 [快速开始 · 快照会过期](/guide#快照会过期-这份数据归你维护)。
+
 ---
 
 ## 1. 创建站点 + 数据库
@@ -154,7 +177,7 @@ index index.php index.html;
 
 **A. phpMyAdmin（图形化）**
 「数据库 → 你的库 → 管理(phpMyAdmin) → 导入」→ 选择 `sql/schema.sql` → 执行。
-导入后应看到 7 张表。
+导入后应看到 8 张表。
 
 **B. 终端一键脚本（推荐）**
 见下面「一键初始化脚本」，会自动建表并输出默认 API Key。

@@ -523,6 +523,11 @@ class Mailer
         if ($subject === '') {
             throw new InvalidArgumentException('邮件主题不能为空（请传 subject 或使用 template）');
         }
+        // 主题会原样拼进 MIME 头，CR/LF 可用来注入 Bcc 等头字段。
+        // 模板变量替换之后才校验，避免 {{变量}} 带入换行绕过；MimeBuilder 另有兜底清洗。
+        if (preg_match('/[\r\n]/', $subject)) {
+            throw new InvalidArgumentException('邮件主题不能包含换行符（防止邮件头注入）');
+        }
         if ($html === '' && $text === '') {
             throw new InvalidArgumentException('邮件正文不能为空（请传 html/text 或使用 template）');
         }

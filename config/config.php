@@ -11,7 +11,7 @@
 return [
     'app' => [
         'name'     => 'ZC Mail Service',
-        'version'  => '1.1.0',
+        'version'  => '1.2.0',
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
@@ -61,6 +61,31 @@ return [
         // 也可用环境变量 ZC_IGNORE_PHP_REQUIREMENT=1 临时跳过。
         // 该开关不开放网页修改：版本不合规时控制台本身也打不开。
         'ignore_php_requirement' => false,
+        // PHP 安全基线「策略快照」：这是部署者自己的数据，不是上游自动 feed。
+        // 应用代码不内置任何上游公告的版本号 —— 上游再发安全版、分支到期，
+        // 由你在这里更新（或把 fixed 留空关掉这项判定），不必等本项目发版。
+        //   as_of / source : 便于日后核对这份快照是否过期
+        //   fixed          : 分支 => 已修复的最低小版本 + 官方安全支持截止日。
+        //                    过了截止日，该行不再代表「安全」，会提示升级分支；
+        //                    未收录的分支一律标 unknown 放行，不臆断补丁状态。
+        //   vendor         : 面板/发行版回补版本，只用于提示文案，绝不自动放行。
+        // 数据来源：php.net 2026-10-21 公告（CVE-2026-109618 / 109619）、
+        //           宝塔 Linux 面板 2026-10-21 / 10-27 公告。
+        'php_baseline' => [
+            'as_of'  => '2026-11-06',
+            'source' => 'https://www.php.net/archive/2026.php',
+            'fixed'  => [
+                '8.2' => ['min' => '8.2.35', 'security_until' => '2026-12-31'],
+                '8.3' => ['min' => '8.3.36', 'security_until' => '2027-12-31'],
+                '8.4' => ['min' => '8.4.27', 'security_until' => '2028-12-31'],
+                '8.5' => ['min' => '8.5.12', 'security_until' => '2029-12-31'],
+            ],
+            'vendor' => [
+                '8.1' => '8.1.35',
+                '8.0' => '8.0.31',
+                '7.4' => '7.4.34',
+            ],
+        ],
         // Web Cron 令牌：无 CLI 的虚拟主机靠「访问 URL」型计划任务驱动队列（public/zc-cron.php）。
         // 留空 = Web Cron 与网页安装器均禁用。建议 openssl rand -hex 16
         'cron_token'      => '',

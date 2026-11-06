@@ -4,7 +4,7 @@
 一个插件就是一个目录，装上就能用，不需要 Composer、不需要改数据库结构。
 
 > **关于扩展点**：主程序会触发 4 个业务事件（发信前拦截、载荷改写、投递前拦截、终态通知），
-> 事件名与载荷契约集中在 `app/Core/Plugin/Hooks.php`，见[第 5 节](#5-业务扩展点)。
+> 事件名与载荷契约集中在 `app/Core/Plugin/Hooks.php`，见[第 5 节(#_5-业务扩展点)。
 > 除此之外，插件还能注册自己的接口、数据表与计划任务入口 —— 三条路是并列的，不冲突。
 
 ---
@@ -35,7 +35,7 @@ plugins/
 | `entry` | 否 | 入口文件，默认 `Plugin.php`；必须落在插件目录内 |
 | `class` | **是** | 入口类的**完整类名**，必须带命名空间 |
 | `requires.php` | 否 | PHP 版本约束，如 `>=8.2`。注意这只是插件自己的约束，主程序另有[运行基线](/guide#php-版本基线) |
-| `requires.zcmail` | 否 | ZC Mail 版本约束，如 `>=1.1.0` |
+| `requires.zcmail` | 否 | ZC Mail 版本约束，如 `>=1.2.0` |
 
 版本约束支持 `>=` `>` `<=` `<` `=` `!=`，以及 composer 风格的 `^1.2`（`<2.0`）、`~1.2`（`<1.3`）；
 不写运算符默认 `>=`。不满足时插件不会被加载，控制台显示具体原因。
@@ -52,7 +52,7 @@ plugins/
   "description": "演示插件机制",
   "entry": "Plugin.php",
   "class": "Plugins\\Hello\\Plugin",
-  "requires": { "php": ">=8.2", "zcmail": ">=1.1.0" }
+  "requires": { "php": ">=8.2", "zcmail": ">=1.2.0" }
 }
 ```
 
@@ -97,7 +97,7 @@ class Plugin
 | `$ctx->db()` | 拿 `Database` 单例，建表、读写自己的表 |
 | `$ctx->dataDir()` | 插件私有目录 `storage/plugins/<slug>/`，首次调用自动创建 |
 | `$ctx->slug()` / `name()` / `version()` / `manifest()` | 读清单信息 |
-| `$ctx->on($event, $handler)` | 注册业务事件监听（见[第 5 节](#5-业务扩展点)） |
+| `$ctx->on($event, $handler)` | 注册业务事件监听（见[第 5 节(#_5-业务扩展点)） |
 
 插件入口文件里可以 `require` 同目录的其他 PHP 文件；项目不强制 autoload 规范，
 但保持一个命名空间前缀能让多人协作时少踩类名冲突。

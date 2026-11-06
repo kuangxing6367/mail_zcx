@@ -1,12 +1,20 @@
 # 更新日志
 
-## 未发布
+## v1.2.0 — 2026-11-06
+
+插件生态、业务扩展点与 PHP 运行基线。相对 v1.1.0 的功能增量。
 
 ### 新增
 
+- **插件系统（生态扩展）**：`plugins/<slug>/` 目录 + `plugin.json` + 入口类，
+  注册自己的接口、数据表与计划任务入口，不改主仓库代码即可扩展
+- `PluginContext` 提供路由、配置、数据库、私有数据目录与事件注册；
+  四条投递路径（同步发信 / CLI worker / Web Cron / SMTP 入站）都会加载插件，事件行为一致
+- 控制台新增「插件」页：查看清单、启用/停用/重载、显示加载错误
+- 新接口 `GET /api/v1/plugins`、`POST /api/v1/plugins/{slug}/enable|disable|reload`，独立 `plugins` scope
+- 示例插件 `plugins/hello`，可直接启用验证；插件文档 `docs/plugins.md`
 - **业务扩展点**：`mail.before_prepare` / `mail.after_prepare` / `mail.before_deliver` /
   `mail.after_send`，事件契约集中在 `App\Core\Plugin\Hooks`；支持改写载荷与显式拒绝
-- worker / Web Cron / SMTP 入站三个入口也加载插件，四条投递路径事件行为一致
 - `Mailer::assertPayload()` 在投递前校验载荷，插件返回畸形数据只给明确 400，不 500
 - **PHP 运行基线**：不满足即拒绝服务（Web 503 / CLI 非零退出 / 安装器禁用），
   `security.ignore_php_requirement` 可显式忽略，供宝塔等已回补补丁的环境使用
@@ -17,41 +25,43 @@
 
 - PHP 最低要求从 `>= 8.0` 更正为 **`>= 8.2` 且为安全修复版**（代码实际用到 8.1 的 `readonly`，
   且 2026-10-21 两个未认证 RCE 只修在 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12）
+- `app.version` 更新为 `1.2.0`，`/health` 与文档示例同步；
+  `plugins/hello` 的 `requires.zcmail` 提到 `>=1.2.0`（示例用到了本版才有的 `Hooks`）
 - `plugins/hello` 改为演示全部 4 个扩展点，默认不改写正常邮件
 - Apache `.htaccess` 与 nginx 示例的禁止目录加入 `bootstrap/`、`plugins/`
-
-### 安全
-
-- 版本号不再被当作补丁状态的唯一判据：宝塔 Linux 已回移打包 8.1.35 / 8.0.31 / 7.4.34 等修复版，
-  但 7.4 / 8.0 仍因语法门槛无法运行本项目；Windows 面板 8.1 及更早无补丁
-- 一键加固 / WAF 规则不能替代补丁，文档明确标注
-- 插件事件总线：非数组返回值、类型不符、普通异常一律隔离；只有 `RejectException` 能中断流程
-
----
-
-## 未发布
-
-### 新增
-
-- **插件系统（生态扩展）**：`plugins/<slug>/` 目录 + `plugin.json` + 入口类，
-  注册自己的接口、数据表与计划任务入口，不改主仓库代码即可扩展
-- `PluginContext` 提供路由、配置、数据库、私有数据目录与通用事件容器；
-  **当前版本主程序不触发任何业务事件**，扩展点留待后续按实际需求接入
-- 控制台新增「插件」页：查看清单、启用/停用/重载、显示加载错误
-- 新接口 `GET /api/v1/plugins`、`POST /api/v1/plugins/{slug}/enable|disable|reload`，独立 `plugins` scope
-- 示例插件 `plugins/hello`，可直接启用验证
-- 插件文档 `docs/plugins.md`
-
-### 变更
-
-- `app.version` 更新为 `1.1.0`，`/health` 与文档示例同步
-- `deploy/apache/root.htaccess` 的禁止目录列表加入 `plugins/`
+- **基线判据改为部署者持有的策略快照**：`bootstrap/requirements.php` 不再内置任何
+  上游公告的版本号，只做通用比较；版本号数据 `security.php_baseline` 放在 `config.php`，
+  可在 `config.local.php` 覆盖或清空。上游再发安全版、分支到期由运维改配置即可，
+  不必改代码或等本项目发版；分支过了 `security_until` 会拒绝并提示升级分支
+- `cli/php-check.php` 打印快照日期，便于核对数据是否过期
+- `503` 不再发送 `Retry-After: 3600`：这是需人工处理的持久拒绝，不是临时过载，
+  重试不会让 PHP 自己升级
 
 ### 安全
 
 - 启用状态存 `storage/plugins.json`，接口**不提供上传 PHP 文件的能力**，插件靠 FTP / 面板安装
 - slug 正则 + `realpath` 边界校验；清单损坏 / 版本不满足 / 入口异常只自动停用该插件，主程序不受影响
 - 插件注册的路由仍走同一套 API Key 鉴权
+- 插件事件总线：非数组返回值、类型不符、普通异常一律隔离；只有 `RejectException` 能中断流程
+- 版本号不再被当作补丁状态的唯一判据：宝塔 Linux 已回移打包 8.1.35 / 8.0.31 / 7.4.34 等修复版，
+  但 7.4 / 8.0 仍因语法门槛无法运行本项目；Windows 面板 8.1 及更早无补丁
+- 一键加固 / WAF 规则不能替代补丁，文档明确标注
+- **修复主题 CRLF 邮件头注入**：`Mailer::buildMessage()` 在模板变量替换之后拒绝含 CR/LF 的
+  主题（明确 400），`MimeBuilder::encodeHeader()` 对所有拼进头部的值兜底清洗。
+  此前同步发信的响应回显会暴露注入，而异步队列的 `202` 响应不含主题，
+  旧回归用例靠「响应里有没有 Bcc 字样」判断，是假阳性；本次已把断言收紧为必须 400
+
+### 文档
+
+- 修正 `sql/schema.sql` 实际 **8 张表**与 README / 快速开始 / 宝塔部署里仍写「7 张表」的不一致
+- 修正快速开始第 10 步、发信示例与 README 发信响应仍按「默认开启队列」描述的问题
+  （v1.1.0 起部署模板默认是同步发信，返回 `200` 而非 `202`）
+- 合并两段「未发布」，删掉已被扩展点推翻的「主程序不触发任何业务事件」
+- `/health` 示例版本统一为 `1.2.0`（快速开始里还停留在 `1.0.0`）
+- 新增「快照会过期」「网页能开、worker 一启动就退出（FPM 与 CLI 不是同一 PHP 二进制）」
+  「取舍：这挡住了谁」三节；宝塔与虚拟主机文档同步补排查步骤与产品代价
+- 修正 VitePress 锚点死链：数字开头章节会生成 `_` 前缀（插件文档「第 5 节」两处），
+  以及宝塔文档指向「快照会过期」的锚点（冒号会被转成连字符）
 
 ---
 

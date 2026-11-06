@@ -33,7 +33,7 @@
 |---|---|---|---|
 | `to` | string \| array | ✅ | 收件人。支持 `"a@b.com"`、`"a@b.com,c@d.com"`、`["a@b.com"]`、`[{"email":"a@b.com","name":"张三"}]`、`"张三 <a@b.com>"` |
 | `cc` / `bcc` | 同上 | | 抄送 / 密送 |
-| `subject` | string | | 主题。用 `template` 时可省略（取模板主题） |
+| `subject` | string | | 主题。用 `template` 时可省略（取模板主题）。**不能含 CR/LF 换行**（防止邮件头注入，含换行返回 `400`），模板变量替换后同样校验 |
 | `html` / `body_html` | string | | HTML 正文 |
 | `text` / `body_text` | string | | 纯文本正文。只传 HTML 时自动生成纯文本版本 |
 | `template` / `template_code` | string | | 模板标识，与 `variables` 配合 |
@@ -432,7 +432,7 @@ Content-Type: application/json
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.1.0", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.2.0", "time": "2026-10-13T20:49:26+08:00" } }
 ```
 
 默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。

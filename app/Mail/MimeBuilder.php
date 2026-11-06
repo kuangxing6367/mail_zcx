@@ -251,6 +251,9 @@ class MimeBuilder
      */
     private function encodeHeader(string $value): string
     {
+        // 所有拼进头部的值都在这里兜底清洗：Subject / From 显示名 / 自定义头
+        // 只要含 CR/LF 就换成空格，杜绝应用层漏校验时的头注入。
+        $value = self::stripCrlf($value);
         if ($value === '') {
             return '';
         }

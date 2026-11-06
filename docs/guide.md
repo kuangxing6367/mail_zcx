@@ -88,6 +88,9 @@ php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extensi
 CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后非零退出，
 网页安装器直接禁用安装按钮。这不是提示，是故意的拒绝服务。
 
+`503` 在这里表示「环境不合规、需人工处理」，不是临时过载：响应**不带 `Retry-After`**，
+客户端定时重试不会让 PHP 自己升级，必须由运维升级运行时或显式放行。
+
 ### 为什么
 
 2026-10-21 PHP 官方修复了两个**未认证的远程代码执行**漏洞：
@@ -101,6 +104,9 @@ CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后�
 其中 `mod_php` 风险最高，官方已有「应用代码运行前」即触发的验证案例。
 漏洞在 PHP 内核，**应用层代码无法防御**，只能升级运行时。
 
+下表同时是 `config/config.php` 里 `security.php_baseline` 的**默认策略快照**（记录于 2026-11-06）。
+它不是自动更新的 feed：上游再发安全版、分支到期，改配置即可，不用改代码、也不用等本项目发版。
+
 官方安全修复版（[php.net 公告](https://www.php.net/archive/2026.php)）：
 
 | 分支 | 安全修复版本 | 官方安全支持截止 |
@@ -110,7 +116,8 @@ CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后�
 | 8.4 | **8.4.27** | 2028-12-31 |
 | 8.5 | **8.5.12** | 2029-12-31 |
 
-8.1 及更早已 EOL，官方不再发安装包。**推荐 8.3+**（8.2 很快到期）。
+8.1 及更早已 EOL，官方不再发安装包。**推荐 8.3+**：8.2 的官方安全支持
+**2026-12-31 截止**，之后 `8.2.35` 也不再等于「有安全更新」。
 支持状态以 [php.net/supported-versions.php](https://www.php.net/supported-versions.php) 为准。
 
 还有一层纯语法门槛：代码用了 PHP 8.1 的 `readonly` 属性，
@@ -122,11 +129,72 @@ CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后�
 |---|---|
 | < 8.1 | 拒绝（语法门槛） |
 | 8.1.x | 拒绝（官方 EOL，无官方安装包） |
-| 8.2~8.5 且低于上表修复版 | 拒绝 |
-| 8.2~8.5 且 ≥ 上表修复版 | 通过 |
-| 其它更新分支 | 放行，但标为「未核实」，需自行确认补丁状态 |
+| 8.2~8.5 且低于快照修复版 | 拒绝 |
+| 8.2~8.5 且 ≥ 快照修复版 | 通过 |
+| 分支已过快照里的 `security_until` | 拒绝（快照对该分支失效，提示升级分支） |
+| 其它更新分支 / 快照为空 | 放行，但标为「未核实」，需自行确认补丁状态 |
 
 自检：`php cli/php-check.php`。`deploy/bootstrap.sh` 第一步也会调它。
+
+### 快照会过期：这份数据归你维护
+
+应用代码里**不内置**任何上游公告的版本号，只有通用的版本比较逻辑。
+判据来自 `config/config.php` 的 `security.php_baseline`：
+
+```php
+'php_baseline' => [
+    'as_of'  => '2026-11-06',
+    'source' => 'https://www.php.net/archive/2026.php',
+    'fixed'  => [
+        '8.3' => ['min' => '8.3.36', 'security_until' => '2027-12-31'],
+        // 其它分支同理
+    ],
+],
+```
+
+- **上游再发安全版**：改对应分支的 `min`，把 `as_of` 改成更新当天。
+  追公告这件事属于你的运维流程（包管理器 / 面板 / 监控），本项目不替你承担。
+- **分支过了 `security_until`**：该行不再代表「安全」，服务转为拒绝并提示升级分支，
+  避免拿过期快照继续放行。请升级到受支持分支，并同步更新快照。
+- **快照里没有的分支**：标 `unknown` 放行并提示「未核实」，不臆断补丁状态。
+- **不想让应用管这件事**：把 `fixed` 留空，就只剩语法门槛 8.1，
+  运行时是否安全完全由你和你的发行版负责。
+- 该项**不在网页「系统设置」白名单里**：基线检查发生在配置加载之前，
+  控制台打不开时没法用它自救，只能改文件。
+
+`php cli/php-check.php` 会打印快照日期，方便核对是否过期。
+
+### 网页能开、worker 一启动就退出
+
+多版本 PHP 的机器（宝塔尤其常见）上，Web 与 CLI 常常**不是同一个 PHP 二进制**：
+PHP-FPM 跑的是面板里已升级的 `/www/server/php/83/bin/php`，
+而命令行的 `php` 指向另一个没升级的 8.3.6 甚至 7.4。结果就是
+`/health` 和控制台一切正常，但 `php cli/worker.php`、`php cli/smtpd.php`、
+`php cli/install.php`、面板定时访问的 `zc-cron.php` 一启动就打印基线错误并退出，
+队列永远没人投递，页面上看不出任何异常。
+
+两边分别验一遍，而且要用**绝对路径**：
+
+```bash
+which php && php -v                       # CLI 侧
+php cli/php-check.php                     # CLI 侧判定
+/www/server/php/83/bin/php -v             # 面板里 FPM 实际用的那个
+/www/server/php/83/bin/php cli/php-check.php
+```
+
+Web 侧想看实际版本，把 `app.health_detail` 设为 `true` 后请求 `/health`。
+supervisor / systemd / crontab 里同样写绝对路径，别用裸 `php` 碰运气；
+升级后记得重启 PHP-FPM，否则旧 worker 仍在跑未修复的版本。
+
+### 取舍：这挡住了谁
+
+默认拒绝服务把「随便找个有 PHP 的格子就能跑」换成了「你得先管好 PHP」。
+对虚拟主机、梦奈这类只有面板、没有 SSH、也没法自己升级 PHP 的用户，
+这恰恰削掉了最没能力处理这件事的一批人 —— 这是明确的产品代价，不是疏漏。
+
+三条现实的路：① 让空间商提供已回补补丁的版本，确认后显式忽略检查；
+② 换能选 PHP 8.3+ 的环境；③ 接受无法自行保证运行时安全，改用外部发信服务。
+如果你运营共享主机，建议在开通页就写明 PHP 版本，别让用户装完才发现 `503`。
 
 ### 什么时候可以忽略
 
@@ -159,7 +227,9 @@ CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后�
 7. `curl https://你的域名/health` 验证
 8. 打开 `https://你的域名/zc-console/`，粘贴安装时输出的默认 API Key
 9. 立刻在控制台「API 密钥」页轮换默认 Key
-10. **启动发信 worker**（默认开启队列，不启动邮件会停在 `pending`，见下文「异步发信与 worker」）
+10. 到此**即可发信**：部署模板默认是同步发信，不需要 worker。
+    只有当你手动打开 `mail.queue.enabled` 时才需要启动 worker 或配 Web Cron
+    （否则邮件会一直停在 `pending`），见下文「发信模式：同步（默认）与异步队列」
 
 ## 手工部署（nginx）
 
@@ -211,7 +281,7 @@ return [
 php cli/install.php
 ```
 
-会创建 7 张表，并输出一个默认 API Key（仅显示一次，立即保存）。
+会创建 8 张表，并输出一个默认 API Key（仅显示一次，立即保存）。
 也可以不用 CLI，直接在 phpMyAdmin 导入 `sql/schema.sql`。
 
 ### 4. nginx 配置
@@ -259,7 +329,7 @@ curl https://your-domain.com/health
 ```
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.0.0" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.2.0" } }
 ```
 
 无 Key 访问业务接口应返回 401，说明鉴权生效：
@@ -318,8 +388,8 @@ curl -X POST https://your-domain.com/api/v1/send \
 
 不传 `mailbox_id` 时自动选择累计发件量最少的可用邮箱。
 
-> 默认队列模式下，上面的请求返回 **HTTP 202 + `status: "queued"`**，只表示已入队，不代表已投递。
-> 投递结果见下节。
+> 默认**同步模式**下返回 `200` + `status: "success"`，表示 SMTP 投递已经完成。
+> 只有打开异步队列后才会返回 `202` + `status: "queued"`，那时只表示已入队，不代表已投递。
 
 ## 发信模式：同步（默认）与异步队列
 

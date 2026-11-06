@@ -44,6 +44,9 @@ return [
         // 'ignore_php_requirement' => true,
         // ⚠ 开关只跳过安全门槛；本项目用 PHP 8.1 的 readonly 语法，7.x / 8.0 仍跑不起来。
         // ⚠ Windows 面板的 8.1 及更早没有补丁，只能临时缓解，不要打开。
+        // 判据本身是 config/config.php 的 security.php_baseline 策略快照，归你维护：
+        // 上游再发安全版或分支到期，在这里覆盖对应分支即可，不必等本项目发版。
+        // 'php_baseline' => ['fixed' => ['8.3' => ['min' => '8.3.36', 'security_until' => '2027-12-31']]],
         // ---- 没有 SSH / CLI 的虚拟主机（梦奈主机这类面板）需要这两项 ----
         // 网页安装器口令（public/zc-install.php）。装完就删掉该文件。
         // 'setup_token'  => 'openssl rand -hex 16 生成',
