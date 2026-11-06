@@ -13,12 +13,13 @@
 适用场景：注册验证码、登录告警、订单通知、系统告警、批量触达等需要**由自己的服务端可控地发邮件**的业务。
 
 - **源代码**：https://github.com/kuangxing6367/mail_zcx
-- **在线文档**：https://mail.zgric.top/ （VitePress 构建；站点由独立的文档仓库部署，本仓库只保留 `docs/` 源文件）
+- **在线文档**：https://mail.zgric.top/ （VitePress + GitHub Pages，源文件在 [mail_zcx-docs](https://github.com/kuangxing6367/mail_zcx-docs)）
 - **API 手册**：[`docs/API.md`](docs/API.md)
 - **协议与约定**：[`docs/contract.md`](docs/contract.md)（许可、版本兼容承诺、Webhook 协议、插件编写约束）
 - **问题反馈**：https://github.com/kuangxing6367/mail_zcx/issues
 
-> 文档站与仓库同源维护：`docs/` 下的 Markdown 是唯一事实来源，改文档即改站点。
+> **文档源文件以 [mail_zcx-docs](https://github.com/kuangxing6367/mail_zcx-docs) 为准。**
+> 本仓库的 `docs/` 是同结构快照，方便读代码时顺手查；改文档请改文档仓库，否则下次同步会覆盖。
 
 ---
 
