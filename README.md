@@ -487,4 +487,4 @@ php -d extension=openssl cli/test_smtp.php --port=2525 --secure=none
 
 ## License
 
-[MIT](LICENSE) © zc team
+[WTFPL](LICENSE) © zc team

@@ -47,4 +47,4 @@ features:
 
 ## License
 
-MIT © zc team
+WTFPL © zc team
