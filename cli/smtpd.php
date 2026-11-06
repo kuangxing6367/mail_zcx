@@ -36,6 +36,9 @@ use App\Service\QueueService;
 
 $root = dirname(__DIR__);
 
+require $root . '/bootstrap/requirements.php';
+zc_php_guard();
+
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {
@@ -574,6 +577,14 @@ if ($missing) {
 }
 
 Config::load();
+
+// SMTP 入站走 prepareRaw()，同样要触发 mail.after_prepare 等扩展点。
+// 父进程加载一次即可，fork 出的子进程继承同一份监听器。
+try {
+    \App\Core\Plugin\PluginManager::instance()->boot();
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[警告] 插件加载失败，已跳过: ' . $e->getMessage() . PHP_EOL);
+}
 
 $cfg = (array) Config::get('smtp_in', []);
 if (!(bool) ($cfg['enabled'] ?? false)) {

@@ -4,7 +4,7 @@
 
 用原生 PHP 实现了一套完整的发信基础设施：多邮箱 SMTP 池、模板渲染、HTTP API、Webhook 双向回调、
 发送日志与统计，外加一个纯静态的 Web 控制台。不需要 composer，不需要 PHPMailer，也不需要任何外部 SaaS ——
-丢到一台 PHP ≥ 8.0（`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json` 五个扩展）的机器上就能跑，数据和授权码全部留在自己手里。
+丢到一台 PHP ≥ 8.2（`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json` 五个扩展）的机器上就能跑，数据和授权码全部留在自己手里。
 
 适用场景：注册验证码、登录告警、订单通知、系统告警、批量触达等需要**由自己的服务端可控地发邮件**的业务。
 
@@ -45,7 +45,7 @@
 | **SMTP 入站** | 内置标准 SMTP 服务（AUTH PLAIN/LOGIN、STARTTLS、PROXY protocol），老系统直接填服务器地址即可发信，走同一条投递链路 |
 | **零 CLI 安装** | 有 SSH 用 `cli/install.php`；没有就用网页安装器 `/zc-install.php`（一次性口令 + 装完自动失效） |
 | **网页改配置** | 控制台「系统设置」直接切发信模式、队列参数与安全项，不用登服务器改文件；改动落在 `config.overrides.php`，删掉即回滚 |
-| **插件（生态扩展）** | `plugins/<slug>/` 放目录 + `plugin.json` + 入口类即可挂自己的接口/数据表/计划任务，控制台启用；单插件出错自动停用，不拖垮主程序。见[插件开发](https://mail.zgric.top/plugins) |
+| **插件（生态扩展）** | `plugins/<slug>/` 放目录 + `plugin.json` + 入口类即可挂自己的接口/数据表/计划任务；还能监听 4 个发信扩展点（拦截、改写、终态通知），单插件出错自动停用，不拖垮主程序。见[插件开发](https://mail.zgric.top/plugins) |
 | **发送日志** | 收件人、主题、SMTP 响应码、错误、耗时、来源 IP、原始请求体，按状态/关键词检索 |
 | **统计报表** | 按日 / 7 天 / 30 天汇总，含按邮箱、按小时的分布 |
 | **Web 控制台** | 纯静态单文件，无框架无 CDN，覆盖仪表盘 / 发信 / 邮箱 / 模板 / Webhook / 日志 / 密钥 |
@@ -118,7 +118,8 @@ storage/                  # 日志 / 证书 / 限流缓存
 
 ### 1. 环境要求
 
-- PHP ≥ 8.0，扩展：`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json`
+- PHP ≥ 8.2，且需为对应分支的**安全修复版**：8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 或更高（推荐 8.3+）
+- 扩展：`pdo_mysql`、`openssl`、`mbstring`、`curl`、`json`
 - MySQL ≥ 5.7
 - nginx（或 Apache），站点根目录指向 **`public/`**
 

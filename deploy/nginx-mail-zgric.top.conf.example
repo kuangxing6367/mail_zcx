@@ -28,7 +28,7 @@ server {
 
     # ---- 安全：隐藏后端目录，禁止直接访问敏感路径 ----
     # app/、config/ 本就在 web 根之外，这里再兜底拦一遍
-    location ~ ^/(app|config|cli|sql|storage|routes\.php|\.git|\.github) {
+    location ~ ^/(app|config|cli|sql|storage|plugins|bootstrap|routes\.php|\.git|\.github) {
         return 404;
     }
 

@@ -23,6 +23,9 @@ use App\Service\WorkerRunner;
 
 $root = dirname(__DIR__);
 
+require $root . '/bootstrap/requirements.php';
+zc_php_guard();
+
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {
@@ -92,6 +95,9 @@ if (!flock($fp, LOCK_EX | LOCK_NB)) {
 $started = microtime(true);
 
 try {
+    // Web Cron 是第三种投递入口，插件事件必须在这里也生效
+    \App\Core\Plugin\PluginManager::instance()->boot();
+
     $maxJobs = max(1, (int) Config::get('mail.queue.web_cron_batch', 5));
     $runner  = new WorkerRunner();
     $stat    = $runner->runOnce($maxJobs);

@@ -4,6 +4,35 @@
 
 ### 新增
 
+- **业务扩展点**：`mail.before_prepare` / `mail.after_prepare` / `mail.before_deliver` /
+  `mail.after_send`，事件契约集中在 `App\Core\Plugin\Hooks`；支持改写载荷与显式拒绝
+- worker / Web Cron / SMTP 入站三个入口也加载插件，四条投递路径事件行为一致
+- `Mailer::assertPayload()` 在投递前校验载荷，插件返回畸形数据只给明确 400，不 500
+- **PHP 运行基线**：不满足即拒绝服务（Web 503 / CLI 非零退出 / 安装器禁用），
+  `security.ignore_php_requirement` 可显式忽略，供宝塔等已回补补丁的环境使用
+- `cli/php-check.php` 自检命令、`deploy/bootstrap.sh` 第一步改为调用它
+- 文档新增「PHP 版本基线」章节（guide / 宝塔部署），列明官方与宝塔的修复版本对照
+
+### 变更
+
+- PHP 最低要求从 `>= 8.0` 更正为 **`>= 8.2` 且为安全修复版**（代码实际用到 8.1 的 `readonly`，
+  且 2026-10-21 两个未认证 RCE 只修在 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12）
+- `plugins/hello` 改为演示全部 4 个扩展点，默认不改写正常邮件
+- Apache `.htaccess` 与 nginx 示例的禁止目录加入 `bootstrap/`、`plugins/`
+
+### 安全
+
+- 版本号不再被当作补丁状态的唯一判据：宝塔 Linux 已回移打包 8.1.35 / 8.0.31 / 7.4.34 等修复版，
+  但 7.4 / 8.0 仍因语法门槛无法运行本项目；Windows 面板 8.1 及更早无补丁
+- 一键加固 / WAF 规则不能替代补丁，文档明确标注
+- 插件事件总线：非数组返回值、类型不符、普通异常一律隔离；只有 `RejectException` 能中断流程
+
+---
+
+## 未发布
+
+### 新增
+
 - **插件系统（生态扩展）**：`plugins/<slug>/` 目录 + `plugin.json` + 入口类，
   注册自己的接口、数据表与计划任务入口，不改主仓库代码即可扩展
 - `PluginContext` 提供路由、配置、数据库、私有数据目录与通用事件容器；

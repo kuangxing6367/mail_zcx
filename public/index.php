@@ -17,6 +17,11 @@ use App\Core\Router;
 
 define('ZC_MAIL_ROOT', dirname(__DIR__));
 
+// PHP 运行基线（含 2026-10-21 两个未认证 RCE 的安全门槛）。
+// 必须在任何 App\ 类加载之前：低版本环境也要拿到明确错误而非白屏 Parse error。
+require ZC_MAIL_ROOT . '/bootstrap/requirements.php';
+zc_php_guard();
+
 // ---- 自动加载（PSR-4: App\ -> app/） ----
 spl_autoload_register(static function (string $class): void {
     $prefix = 'App\\';

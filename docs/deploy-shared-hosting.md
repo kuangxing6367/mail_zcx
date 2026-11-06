@@ -33,7 +33,7 @@ PHP 发信是**主动连出去**（`fsockopen` + TLS 到 `smtp.qq.com:465`），
 
 | 项 | 要求 | 说明 |
 |---|---|---|
-| PHP | **8.0 以上** | 项目用了 `str_starts_with`、`match`、联合类型。面板里把 PHP 切到 8.1/8.2（很多主机默认还是 5.6/7.4） |
+| PHP | **≥ 8.2 且为安全修复版** | 代码用到 PHP 8.1 的 `readonly`，7.4/8.0 即使面板打了补丁也跑不起来；很多主机默认还是 5.6/7.4，务必先切版本 |
 | 扩展 | `pdo_mysql`、`openssl`、`mbstring`、`curl` | 都缺一不可；缺 `openssl` 就连不上 465/587 |
 | MySQL | 5.7+，**InnoDB** | 队列表用了行锁 `FOR UPDATE`，MyISAM 不行 |
 | 空间 | 源码约 1MB；建议 ≥ 200MB | 100MB 也能跑，但要按第 9 节限制日志体积 |
@@ -266,7 +266,8 @@ DELETE FROM zc_send_jobs WHERE status IN ('done','failed') AND created_at < DATE
 |---|---|
 | 打开域名是一段 JSON | 正常。项目没有首页，控制台在 `/zc-console/` |
 | `/api/v1/...` 返回 404 或 HTML | 伪静态没生效；或方案 B 的 `.htaccess` 没上传/没被识别 |
-| 全部接口 500，页面空白 | PHP 版本 < 8.0，或 `pdo_mysql` 没开；先看 `storage/logs/app.log` |
+| 返回 503「PHP 版本不满足运行基线」 | 版本低于基线或不是安全修复版，见[宝塔/面板说明](/deploy-baota#php-版本基线)；确认已打补丁可在 config 里忽略 |
+| 全部接口 500，页面空白 | PHP 版本 < 8.2，或 `pdo_mysql` 没开；先看 `storage/logs/app.log` |
 | 安装器提示「无法切换到数据库」 | 库名/用户/密码不对，或该用户没被授权到这个库（面板里重新绑定） |
 | 安装器提示 storage 不可写 | 把 `storage` 及子目录权限改成 755（部分主机要 777） |
 | 发信卡住然后超时 | 出站 465/587 被封，或 `fsockopen` 被禁用 |

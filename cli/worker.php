@@ -24,6 +24,9 @@ use App\Service\WorkerRunner;
 
 $root = dirname(__DIR__);
 
+require $root . '/bootstrap/requirements.php';
+zc_php_guard();
+
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {
@@ -61,6 +64,14 @@ if ($missing) {
 }
 
 Config::load();
+
+// 队列投递发生在后台，插件同样要在这里加载，否则 mail.before_deliver /
+// mail.after_send 在异步模式下不会触发，同步与队列行为会分叉。
+try {
+    \App\Core\Plugin\PluginManager::instance()->boot();
+} catch (\Throwable $e) {
+    worker_out('[警告] 插件加载失败，已跳过: ' . $e->getMessage());
+}
 
 if (!(bool) Config::get('mail.queue.enabled', false)) {
     fwrite(STDERR, '[警告] mail.queue.enabled 为 false：API 会走同步发送，worker 不会收到任务。' . PHP_EOL);

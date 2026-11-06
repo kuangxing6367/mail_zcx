@@ -36,6 +36,14 @@ return [
         // 'api_entry'    => '',     // 秘密入口前缀，详见 README「秘密入口」
         // 'inbound_secret' => '',   // 入站 Webhook 签名密钥；留空 = /hook/inbound 关闭
         // 'cors_origins'   => 'https://console.example.com',
+        // ---- PHP 运行基线（默认强制，不满足直接拒绝服务）----
+        // 2026-10-21 PHP 官方修复两个未认证 RCE（CVE-2026-109618 / 109619，CVSS 9.2），
+        // 官方只给 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 发安装包，8.1 及更早已 EOL。
+        // 但宝塔 Linux 面板把官方源码补丁回移打包了 8.1.35 / 8.0.31 / 7.4.34 等修复版，
+        // 版本号本身不等于「有漏洞」。确认你装的确实是修复版后，再打开这个开关：
+        // 'ignore_php_requirement' => true,
+        // ⚠ 开关只跳过安全门槛；本项目用 PHP 8.1 的 readonly 语法，7.x / 8.0 仍跑不起来。
+        // ⚠ Windows 面板的 8.1 及更早没有补丁，只能临时缓解，不要打开。
         // ---- 没有 SSH / CLI 的虚拟主机（梦奈主机这类面板）需要这两项 ----
         // 网页安装器口令（public/zc-install.php）。装完就删掉该文件。
         // 'setup_token'  => 'openssl rand -hex 16 生成',

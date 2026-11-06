@@ -98,6 +98,9 @@ class WorkerRunner
                             'job_id' => $jobId,
                             'log_id' => (int) $payload['log_id'],
                         ]);
+                    } finally {
+                        // 终态通知：与同步路径 Mailer::send() 语义一致，只触发一次
+                        \App\Core\Plugin\Hooks::afterSend($payload, $result);
                     }
                     $stat['done']++;
                     $this->log("job#{$jobId} 投递成功 log#{$payload['log_id']} ({$result['duration_ms']}ms)");
@@ -146,7 +149,11 @@ class WorkerRunner
 
         if ($nextAttempts >= $this->maxAttempts) {
             $this->queue->markFailed($jobId, $error);
-            $this->mailer->finalize($payload, $result);
+            try {
+                $this->mailer->finalize($payload, $result);
+            } finally {
+                \App\Core\Plugin\Hooks::afterSend($payload, $result);
+            }
             $this->log("job#{$jobId} 最终失败: {$error}");
             return 'failed';
         }

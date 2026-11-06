@@ -5,6 +5,7 @@ namespace App\Mail;
 use App\Core\Config;
 use App\Core\Logger;
 use App\Core\RequestContext;
+use App\Core\Plugin\Hooks;
 use App\Service\LogService;
 use App\Service\MailboxService;
 use App\Service\TemplateService;
@@ -39,8 +40,29 @@ class Mailer
     public function send(array $input, array $context = []): array
     {
         $payload = $this->prepare($input, $context);
-        $result  = $this->deliver($payload);
-        $this->finalize($payload, $result);
+        try {
+            $result = $this->deliver($payload);
+        } catch (\Throwable $e) {
+            // before_deliver 拒绝 / 载荷畸形时，日志已经落库（pending）。
+            // 同步模式没有 worker 兜底，必须在这里收口成 failed 并触发终态事件，
+            // 否则会留下一封永远 pending 的脏数据。
+            $failed = [
+                'status' => 'failed', 'smtp_code' => '', 'smtp_message' => '',
+                'error'  => $e->getMessage(), 'duration_ms' => 0,
+            ];
+            try {
+                $this->finalize($payload, $failed);
+            } catch (\Throwable $ignored) {
+                // 收口失败也不能覆盖原始异常
+            }
+            Hooks::afterSend($payload, $failed);
+            throw $e;
+        }
+        try {
+            $this->finalize($payload, $result);
+        } finally {
+            Hooks::afterSend($payload, $result);
+        }
 
         return [
             'log_id'       => $payload['log_id'],
@@ -65,6 +87,9 @@ class Mailer
      */
     public function prepare(array $input, array $context = []): array
     {
+        // 拒绝点：此时还没落库，插件可以干净地拦掉一封信
+        [$input, $context] = Hooks::beforePrepare($input, $context);
+
         [$to, $cc, $bcc, $subject, $html, $text, $missing, $mailbox, $mime, $fromName] =
             $this->buildMessage($input);
 
@@ -95,7 +120,7 @@ class Mailer
                 : null,
         ]);
 
-        return [
+        $payload = [
             'log_id'       => $logId,
             'request_id'   => $requestId,
             'mailbox_id'   => (int) $mailbox['id'],
@@ -111,6 +136,10 @@ class Mailer
             'input'        => $input,
             'context'      => $context,
         ];
+
+        $payload = Hooks::afterPrepare($payload);
+        $this->assertPayload($payload);
+        return $payload;
     }
 
     /**
@@ -190,7 +219,7 @@ class Mailer
                 : null,
         ]);
 
-        return [
+        $payload = [
             'log_id'       => $logId,
             'request_id'   => $requestId,
             'mailbox_id'   => (int) $mailbox['id'],
@@ -206,6 +235,11 @@ class Mailer
             'input'        => ['source' => 'smtp', 'callback_url' => (string) ($envelope['callback_url'] ?? '')],
             'context'      => $context,
         ];
+
+        // SMTP 入站也走同一组扩展点，保证插件对两条入口行为一致
+        $payload = Hooks::afterPrepare($payload);
+        $this->assertPayload($payload);
+        return $payload;
     }
 
     /**
@@ -263,6 +297,9 @@ class Mailer
      */
     public function deliver(array $payload): array
     {
+        $payload = Hooks::beforeDeliver($payload);
+        $this->assertPayload($payload);
+
         $mailboxId = (int) $payload['mailbox_id'];
         $mailbox   = $this->mailboxes->get($mailboxId);
         if (!$mailbox) {
@@ -388,6 +425,57 @@ class Mailer
             $logId,
             $callbackSecret
         );
+    }
+
+    /**
+     * 载荷自检：插件可以改写 payload，但改坏了不能让主程序以 TypeError 白屏，
+     * 更不能把畸形数据塞进 SMTP 会话。同步、队列、SMTP 入站三条路径共用。
+     *
+     * @throws \RuntimeException 载荷畸形
+     */
+    private function assertPayload(array $payload): void
+    {
+        $required = [
+            'log_id', 'mailbox_id', 'from_email', 'from_name', 'recipients', 'message',
+            'subject', 'to', 'cc', 'bcc', 'input', 'context',
+        ];
+        foreach ($required as $key) {
+            if (!array_key_exists($key, $payload)) {
+                throw new \RuntimeException('作业载荷缺少字段: ' . $key);
+            }
+        }
+
+        if (!is_numeric($payload['log_id']) || !is_numeric($payload['mailbox_id'])
+            || (int) $payload['mailbox_id'] < 1) {
+            throw new \RuntimeException('作业载荷畸形: log_id / mailbox_id 非法');
+        }
+        if (!is_string($payload['from_email'])
+            || filter_var($payload['from_email'], FILTER_VALIDATE_EMAIL) === false) {
+            throw new \RuntimeException('作业载荷畸形: from_email 非法');
+        }
+        foreach (['from_name', 'subject', 'to', 'cc', 'bcc', 'message'] as $key) {
+            if (!is_string($payload[$key])) {
+                throw new \RuntimeException('作业载荷畸形: ' . $key . ' 必须是字符串');
+            }
+        }
+        if ($payload['message'] === '' || str_contains($payload['message'], "\0")) {
+            throw new \RuntimeException('作业载荷畸形: message 为空或含 NUL 字节');
+        }
+        if (!is_array($payload['recipients']) || $payload['recipients'] === []) {
+            throw new \RuntimeException('作业载荷畸形: recipients 必须是非空数组');
+        }
+        $max = (int) Config::get('mail.max_recipients', 100);
+        if (count($payload['recipients']) > $max) {
+            throw new \RuntimeException('作业载荷畸形: 收件人数量超过上限 ' . $max);
+        }
+        foreach ($payload['recipients'] as $addr) {
+            if (!is_string($addr) || filter_var($addr, FILTER_VALIDATE_EMAIL) === false) {
+                throw new \RuntimeException('作业载荷畸形: recipients 含非法邮箱');
+            }
+        }
+        if (!is_array($payload['input']) || !is_array($payload['context'])) {
+            throw new \RuntimeException('作业载荷畸形: input / context 必须是数组');
+        }
     }
 
     /**

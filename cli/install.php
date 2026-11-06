@@ -20,6 +20,9 @@ use App\Service\InstallerService;
 
 $root = dirname(__DIR__);
 
+require $root . '/bootstrap/requirements.php';
+zc_php_guard();
+
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {

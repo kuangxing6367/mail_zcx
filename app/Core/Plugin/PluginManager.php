@@ -45,13 +45,19 @@ class PluginManager
 
     // ------------------------------------------------------------------ 加载
 
-    /** 在路由注册之后、鉴权之前调用 */
-    public function boot(Router $router): void
+    /**
+     * 在路由注册之后、鉴权之前调用。
+     * CLI 入口（worker / smtpd / Web Cron）没有 HTTP 路由，传 null 即可：
+     * 会给一个不参与分发的空 Router，让插件的 register() 照常执行，
+     * 从而保证队列投递、SMTP 入站这些路径也会触发业务事件。
+     */
+    public function boot(?Router $router = null): void
     {
         if ($this->booted) {
             return;
         }
         $this->booted = true;
+        $router ??= new Router();
 
         if (!Config::get('plugins.enabled', true)) {
             return;
@@ -114,26 +120,70 @@ class PluginManager
         }
     }
 
-    /** 插件注册的事件容器：由后续版本的扩展点调用，事件名不预设 */
-    public static function emit(string $event, array $payload = []): array
+    /**
+     * 触发一个事件，把上一个监听器的返回值传给下一个（filter 链）。
+     *
+     * 隔离规则：
+     *   - RejectException 原样上抛（显式拦截，由 Hooks 决定在哪一层生效）
+     *   - 其它 Throwable 只记日志，跳过这个监听器
+     *   - 返回值不是数组、或不符合 $schema 契约 → 整份丢弃，不让畸形数据混进主流程
+     *
+     * @param array<string,string> $schema 字段名 => array|string|int|email
+     */
+    public static function emit(string $event, array $payload = [], array $schema = []): array
     {
         foreach (self::instance()->contexts as $slug => $ctx) {
             foreach ($ctx->listeners($event) as $handler) {
                 try {
                     $result = $handler($payload, $ctx);
-                    if (is_array($result)) {
-                        $payload = $result;
-                    }
+                } catch (RejectException $e) {
+                    throw $e;
                 } catch (Throwable $e) {
                     Logger::warning('插件事件处理异常', [
                         'plugin' => $slug,
                         'event'  => $event,
                         'error'  => $e->getMessage(),
                     ]);
+                    continue;
                 }
+
+                if (!is_array($result)) {
+                    Logger::warning('插件事件返回值不是数组，已丢弃', [
+                        'plugin' => $slug, 'event' => $event, 'type' => get_debug_type($result),
+                    ]);
+                    continue;
+                }
+                if (!self::matchesSchema($result, $schema)) {
+                    Logger::warning('插件事件返回值不符合契约，已丢弃', [
+                        'plugin' => $slug, 'event' => $event,
+                    ]);
+                    continue;
+                }
+                $payload = $result;
             }
         }
         return $payload;
+    }
+
+    private static function matchesSchema(array $data, array $schema): bool
+    {
+        foreach ($schema as $key => $type) {
+            if (!array_key_exists($key, $data)) {
+                continue; // 缺字段由主程序的载荷校验兜底，不在这里猜
+            }
+            $v  = $data[$key];
+            $ok = match ($type) {
+                'array'  => is_array($v),
+                'string' => is_string($v),
+                'int'    => is_int($v) || (is_string($v) && ctype_digit($v)),
+                'email'  => is_string($v) && filter_var($v, FILTER_VALIDATE_EMAIL) !== false,
+                default  => true,
+            };
+            if (!$ok) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public function loaded(): array
@@ -180,7 +230,7 @@ class PluginManager
             'enabled'    => (bool) Config::get('plugins.enabled', true),
             'count'      => count($this->list()),
             'loaded'     => $this->loaded(),
-            'note'       => '扩展点由主程序在后续版本接入；当前版本插件通过注册自己的路由、数据表与计划任务入口来扩展。',
+            'note'       => '业务扩展点见 App\\Core\\Plugin\\Hooks：mail.before_prepare / after_prepare / before_deliver / after_send。',
         ];
     }
 

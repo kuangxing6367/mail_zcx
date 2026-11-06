@@ -53,6 +53,14 @@ return [
         // 秘密入口前缀：非空时 API 挂载点变为 /<前缀>/api/v1，直接访问 /api/v1 返回 404
         // 例：设为 'x9m2kq' 后，真实接口为 https://域名/x9m2kq/api/v1/...；控制台需同步设置 API_ENTRY
         'api_entry'       => '',
+        // PHP 运行基线：不满足时服务直接拒绝启动（HTTP 503 / CLI 非零退出）。
+        // 默认 false = 强制检查。只有当你确认发行版/面板已回补
+        // CVE-2026-109618 / CVE-2026-109619 补丁（如宝塔 Linux 的 8.1.35 修复版），
+        // 或发行版 LTS 已 backport 时才设为 true。
+        // 注意：这只跳过安全门槛，跳不过语法门槛 —— 代码需要 PHP >= 8.1 才能解析。
+        // 也可用环境变量 ZC_IGNORE_PHP_REQUIREMENT=1 临时跳过。
+        // 该开关不开放网页修改：版本不合规时控制台本身也打不开。
+        'ignore_php_requirement' => false,
         // Web Cron 令牌：无 CLI 的虚拟主机靠「访问 URL」型计划任务驱动队列（public/zc-cron.php）。
         // 留空 = Web Cron 与网页安装器均禁用。建议 openssl rand -hex 16
         'cron_token'      => '',

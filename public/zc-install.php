@@ -23,6 +23,8 @@ use App\Service\InstallerService;
 
 $root = dirname(__DIR__);
 
+require $root . '/bootstrap/requirements.php';
+
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {
@@ -90,16 +92,31 @@ if ($token === '') {
         . '<p class="hint">也可以用命令行生成：<code>openssl rand -hex 16</code></p>', 403);
 }
 
-$missing = InstallerService::missingExtensions();
-$phpOk   = version_compare(PHP_VERSION, '8.0.0', '>=');
-$given   = (string) ($_POST['token'] ?? ($_GET['token'] ?? ''));
+$missing    = InstallerService::missingExtensions();
+$phpInfo    = zc_php_requirement();
+$phpIgnored = zc_php_ignore();
+$phpOk      = $phpIgnored || in_array($phpInfo['level'], ['ok', 'unknown'], true);
+$given      = (string) ($_POST['token'] ?? ($_GET['token'] ?? ''));
 $doRun   = isset($_POST['do']);
 $localCfg = is_file(Config::basePath('config/config.local.php'));
 
 // ---- 未提交：显示环境检查 + 表单 ----
 if (!$doRun) {
     $items = '';
-    $items .= '<li>PHP 版本：' . h(PHP_VERSION) . ($phpOk ? ' <span class="ok">✓</span>' : ' <span class="bad">✗ 需要 8.0+</span>') . '</li>';
+    if ($phpOk) {
+        $phpState = $phpIgnored
+            ? ' <span class="warn">基线检查已被配置忽略（请确认补丁已装）</span>'
+            : ($phpInfo['level'] === 'unknown'
+                ? ' <span class="warn">未核实分支：' . h($phpInfo['reason']) . '</span>'
+                : ' <span class="ok">✓ 运行基线通过</span>');
+        $items .= '<li>PHP 版本：' . h(PHP_VERSION) . $phpState . '</li>';
+    } else {
+        $items .= '<li>PHP 版本：' . h(PHP_VERSION) . ' <span class="bad">✗ ' . h($phpInfo['reason']) . '</span>'
+            . '<div style="color:#8b93a7;font-size:12.5px;margin:4px 0 8px">'
+            . h($phpInfo['hint']) . ' 确认已打补丁后，可在 <code>config/config.local.php</code> 设 '
+            . '<code>\'security\' =&gt; [\'ignore_php_requirement\' =&gt; true]</code>。'
+            . '</div></li>';
+    }
     $items .= '<li>扩展 pdo_mysql / openssl / mbstring / curl：'
         . ($missing ? '<span class="bad">缺少 ' . h(implode(', ', $missing)) . '</span>' : '<span class="ok">齐全 ✓</span>') . '</li>';
     $items .= '<li>数据库连接配置：' . (((string) Config::get('db.database', '')) !== ''
@@ -120,6 +137,15 @@ if (!$doRun) {
               . '</form>'
             : '<p class="bad">环境不满足，先把上面标红的项处理好。</p>')
         . '<p class="hint">安装完成后本页会自动失效，请再删除 public/zc-install.php，并继续按文档配置伪静态与计划任务。</p>');
+}
+
+// ---- 提交：环境基线复核（防止绕过表单直接 POST）----
+if (!$phpOk) {
+    render('环境不满足', '<h1 class="bad">PHP 运行基线不满足，已拒绝安装</h1>'
+        . '<p class="sub">' . h($phpInfo['reason']) . '</p>'
+        . '<p>' . h($phpInfo['hint']) . '</p>'
+        . '<p class="hint">若发行版/面板已回补 CVE-2026-109618 / CVE-2026-109619 补丁，'
+        . '在 config/config.local.php 设 <code>\'security\' =&gt; [\'ignore_php_requirement\' =&gt; true]</code> 后重试。</p>', 503);
 }
 
 // ---- 提交：校验 token ----

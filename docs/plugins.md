@@ -3,10 +3,9 @@
 插件是**生态扩展**：第三方可以往这个项目上挂自己的东西，不必改主仓库代码，也不必等主仓库发版。
 一个插件就是一个目录，装上就能用，不需要 Composer、不需要改数据库结构。
 
-> **关于扩展点**：当前版本主程序**不触发任何业务事件**。插件通过注册自己的接口、数据表、
-> 计划任务入口来扩展；`ctx->on()` 只是预留的事件容器，注册了暂时不会被调用。
-> 主程序在哪些位置触发事件（发信前拦截、选箱、投递后处理等）属于下一阶段的事，
-> 由实际需求和插件作者反馈决定，不在这里预先拍一套事件名。
+> **关于扩展点**：主程序会触发 4 个业务事件（发信前拦截、载荷改写、投递前拦截、终态通知），
+> 事件名与载荷契约集中在 `app/Core/Plugin/Hooks.php`，见[第 5 节](#5-业务扩展点)。
+> 除此之外，插件还能注册自己的接口、数据表与计划任务入口 —— 三条路是并列的，不冲突。
 
 ---
 
@@ -35,7 +34,7 @@ plugins/
 | `author` / `description` / `homepage` | 否 | 展示用 |
 | `entry` | 否 | 入口文件，默认 `Plugin.php`；必须落在插件目录内 |
 | `class` | **是** | 入口类的**完整类名**，必须带命名空间 |
-| `requires.php` | 否 | PHP 版本约束，如 `>=8.0` |
+| `requires.php` | 否 | PHP 版本约束，如 `>=8.2`。注意这只是插件自己的约束，主程序另有[运行基线](/guide#php-版本基线) |
 | `requires.zcmail` | 否 | ZC Mail 版本约束，如 `>=1.1.0` |
 
 版本约束支持 `>=` `>` `<=` `<` `=` `!=`，以及 composer 风格的 `^1.2`（`<2.0`）、`~1.2`（`<1.3`）；
@@ -53,7 +52,7 @@ plugins/
   "description": "演示插件机制",
   "entry": "Plugin.php",
   "class": "Plugins\\Hello\\Plugin",
-  "requires": { "php": ">=8.0", "zcmail": ">=1.1.0" }
+  "requires": { "php": ">=8.2", "zcmail": ">=1.1.0" }
 }
 ```
 
@@ -98,7 +97,7 @@ class Plugin
 | `$ctx->db()` | 拿 `Database` 单例，建表、读写自己的表 |
 | `$ctx->dataDir()` | 插件私有目录 `storage/plugins/<slug>/`，首次调用自动创建 |
 | `$ctx->slug()` / `name()` / `version()` / `manifest()` | 读清单信息 |
-| `$ctx->on($event, $handler)` | 注册事件监听（当前版本不会被触发，见开头说明） |
+| `$ctx->on($event, $handler)` | 注册业务事件监听（见[第 5 节](#5-业务扩展点)） |
 
 插件入口文件里可以 `require` 同目录的其他 PHP 文件；项目不强制 autoload 规范，
 但保持一个命名空间前缀能让多人协作时少踩类名冲突。
@@ -111,7 +110,70 @@ class Plugin
 
 ---
 
-## 5. 管理接口
+## 5. 业务扩展点
+
+主程序在一条邮件的生命周期里触发 4 个事件。事件名和载荷契约集中在
+`app/Core/Plugin/Hooks.php` —— 不要自己发明事件名，注册了也不会触发。
+
+| 事件 | 触发时机 | 能改什么 | 能否拒绝 |
+|---|---|---|---|
+| `mail.before_prepare` | 解析参数之前，还没落库 | `input`、`context` | 可以，`Hooks::reject()` → 400 且不留日志 |
+| `mail.after_prepare` | MIME 组好、日志落库、返回载荷之前 | 收件人 / 主题 / 报文等载荷字段 | 不可以：已落库，拒绝会被降级为忽略 |
+| `mail.before_deliver` | 真正连 SMTP 之前 | 同上 | 可以，拒绝后本封按失败处理 |
+| `mail.after_send` | 终态（成功或最终失败），每封只触发一次 | 只读，适合记自己的表 / 发通知 | 不可以，异常一律吞掉 |
+
+事件是 filter 链：上一个监听器的返回值传给下一个，最后交回主程序。
+签名 `function (array $data, PluginContext $ctx): array`。
+
+```php
+use App\Core\Plugin\Hooks;
+
+$ctx->on(Hooks::BEFORE_PREPARE, function (array $data): array {
+    $input = $data['input'];
+    if (($input['to'] ?? '') === 'blocked@example.com') {
+        Hooks::reject('收件人在黑名单中');
+    }
+    $input['subject'] = '[通知] ' . ($input['subject'] ?? '');
+    $data['input'] = $input;
+    return $data;
+});
+
+$ctx->on(Hooks::AFTER_SEND, function (array $data) use ($ctx): array {
+    // $data['payload'] 是完整载荷，$data['result'] 是投递结果
+    file_put_contents($ctx->dataDir() . '/sent.log',
+        json_encode($data) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    return $data;
+});
+```
+
+### 畸形返回值怎么处理
+
+插件写错不该把发信链路拖垮：
+
+| 插件行为 | 结果 |
+|---|---|
+| 返回非数组 / `null` | 丢弃这份返回值，记 warning，沿用上一版数据 |
+| 返回数组但字段类型不对（`recipients` 变字符串、`from_email` 不是邮箱） | 同上，整份丢弃 |
+| 抛普通异常 | 记 warning，跳过这个监听器 |
+| 抛 `RejectException`（`Hooks::reject()`） | 原样上抛，由事件所在层决定是否中断 |
+| 少返字段 / 塞 NUL 字节 / 收件人超上限 | 事件契约不查缺失字段，但 `Mailer::assertPayload()` 会在投递前拦下，返回明确的 400，不会 500 |
+
+改写载荷时要自己维护一致性：`message`、`recipients`、`to`、`subject` 是同一封信的不同表示，
+只改其中一个可能造成日志与实际投递不符。
+
+### 哪些进程会触发
+
+`public/index.php`、`cli/worker.php`、`public/zc-cron.php`、`cli/smtpd.php` **都会加载插件**，
+所以同步发信、队列 worker、Web Cron、SMTP 入站四条路径的事件行为一致。
+
+常驻的 worker / smtpd 只在启动时加载一次，启用新插件或修改插件代码后要重启这些进程；
+Web 请求与 Web Cron 每个请求都会重新加载。
+
+仓库里的 `plugins/hello/` 注册了全部 4 个事件，默认不改写任何邮件。
+
+---
+
+## 6. 管理接口
 
 全部需要 `plugins` scope（新装的默认 Key 是 `*`，已包含）。
 
@@ -131,7 +193,7 @@ class Plugin
 
 ---
 
-## 6. 故障隔离
+## 7. 故障隔离
 
 - 插件目录扫描只认符合 slug 正则的子目录，入口文件用 `realpath` 校验在目录内
 - 清单损坏、版本不满足、入口越界、类不存在、缺 `register()`、`register()` 抛异常 —— 全部只影响这个插件
@@ -143,7 +205,7 @@ class Plugin
 
 ---
 
-## 7. 总开关
+## 8. 总开关
 
 `config/config.php`：
 
@@ -158,7 +220,7 @@ class Plugin
 
 ---
 
-## 8. 发布自己的插件
+## 9. 发布自己的插件
 
 没有中心插件市场，也没有强制的仓库结构。常见做法是独立 GitHub 仓库：
 

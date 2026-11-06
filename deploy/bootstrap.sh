@@ -8,9 +8,12 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT"
 echo "==> 项目目录: $ROOT"
 
-# 1. PHP 版本
-php -r 'exit(PHP_VERSION_ID >= 80000 ? 0 : 1);' || {
-  echo "✗ 需要 PHP >= 8.0，当前: $(php -v | head -1)"
+# 1. PHP 版本与运行基线
+#    除语法门槛外，还会核对 2026-10-21 两个未认证 RCE 的修复版本。
+#    宝塔等面板已回补补丁时，可在 config.local.php 设
+#    'security' => ['ignore_php_requirement' => true] 跳过安全门槛。
+php cli/php-check.php || {
+  echo "✗ PHP 运行基线不满足，已停止初始化"
   exit 1
 }
 echo "==> PHP: $(php -v | head -1)"
