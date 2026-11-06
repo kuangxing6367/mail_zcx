@@ -271,6 +271,7 @@ pre.out{background:var(--bg);border:1px solid var(--bd);border-radius:9px;paddin
       <a data-p="keys"><span class="ic">⚿</span><span class="txt">API 密钥</span></a>
       <div class="grp">系统</div>
       <a data-p="settings"><span class="ic">⚙</span><span class="txt">系统设置</span></a>
+      <a data-p="plugins"><span class="ic">⬡</span><span class="txt">插件</span></a>
     </nav>
     <div class="foot">
       <div id="keyInfo" class="mut">未认证</div>
@@ -423,6 +424,7 @@ const PAGES = {
   logs:{t:'发送日志', s:'投递记录与详情', fn:pageLogs},
   keys:{t:'API 密钥', s:'调用凭据与限流', fn:pageKeys},
   settings:{t:'系统设置', s:'发信模式、队列与安全项', fn:pageSettings},
+  plugins:{t:'插件', s:'第三方扩展与启用状态', fn:pagePlugins},
 };
 function go(p){ location.hash = '#/' + p; }
 window.go = go;
@@ -1235,6 +1237,77 @@ function resetSettings(){
   }, '确认恢复');
 }
 window.resetSettings = resetSettings;
+
+/* ======================= 插件 ======================= */
+async function pagePlugins(){
+  const v = $('#view');
+  $('#hdAct').innerHTML = '';
+  v.innerHTML = '<div class="empty"><span class="loading"></span></div>';
+
+  let d;
+  try { d = await api('/plugins'); }
+  catch(e){ v.innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br><br>
+    该接口需要 API Key 具备 <code class="mono">plugins</code> 权限（新装的默认 Key 已包含）。</div>`; return; }
+
+  const info = d.info || {}, list = d.plugins || [];
+  const cards = list.map(p => `
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <div style="font-size:14px;font-weight:600">${esc(p.name)}
+            <span class="mono mut" style="font-size:12px;font-weight:400;margin-left:8px">${esc(p.slug)} · v${esc(p.version)}</span></div>
+          <div class="mut" style="font-size:12px;margin-top:6px">${esc(p.description || '（无描述）')}</div>
+          ${p.author ? `<div class="mut" style="font-size:12px;margin-top:4px">by ${esc(p.author)}</div>` : ''}
+          <div class="mono mut" style="font-size:11px;margin-top:8px;word-break:break-all">${esc(p.path)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex:none">
+          <span class="tag ${p.error ? 'err' : (p.enabled ? 'ok' : 'dim')}">${p.error ? '加载失败' : (p.enabled ? '已启用' : '未启用')}</span>
+          <button class="btn ${p.enabled ? 'g' : ''}" onclick="togglePlugin('${esc(p.slug)}', ${p.enabled ? 'false' : 'true'})">${p.enabled ? '停用' : '启用'}</button>
+          <button class="btn g" onclick="reloadPlugin('${esc(p.slug)}')">重载</button>
+        </div>
+      </div>
+      ${p.error ? `<div class="hint" style="margin-top:12px;color:var(--warn)">加载失败（已自动停用）：${esc(p.error)}</div>` : ''}
+      ${p.events && p.events.length ? `<div class="hint" style="margin-top:8px">已注册事件：${p.events.map(x => esc(x)).join('、')}</div>` : ''}
+    </div>`).join('');
+
+  $('#hdAct').innerHTML = `<button class="btn g" onclick="pagePlugins()">刷新</button>`;
+  v.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:13px;font-weight:600">插件机制</div>
+          <div class="mono mut" style="font-size:12px;margin-top:4px">${esc(info.dir)}</div>
+          <div class="mut" style="font-size:12px;margin-top:8px;max-width:640px;line-height:1.6">
+            插件目录放一个子目录 + <code class="mono">plugin.json</code> + 入口类即可被识别，在这里启用后生效。${esc(info.note || '')}
+          </div>
+        </div>
+        <span class="tag ${info.writable ? 'ok' : 'err'}">${info.writable ? '状态可保存' : '状态不可写'}</span>
+      </div>
+      ${info.enabled ? '' : `<div class="hint" style="margin-top:12px;color:var(--warn)">总开关 plugins.enabled 当前为 false，插件不会被加载。</div>`}
+      ${info.writable ? '' : `<div class="hint" style="margin-top:12px;color:var(--warn)">storage/ 不可写，启用状态无法保存。请给站点运行用户授权该目录。</div>`}
+      <div class="mut" style="font-size:12px;margin-top:12px">共 ${list.length} 个插件 · 本次请求已加载 ${(info.loaded || []).length} 个 · 状态文件 <code class="mono">${esc(info.state_file)}</code></div>
+    </div>
+    ${cards || `<div class="card" style="margin-top:14px"><div class="empty">还没有插件。把插件目录上传到 <code class="mono">plugins/&lt;标识&gt;/</code> 后刷新本页。</div></div>`}`;
+}
+
+async function togglePlugin(slug, on){
+  try {
+    await api('/plugins/' + encodeURIComponent(slug) + '/' + (on ? 'enable' : 'disable'), {method:'POST'});
+    toast(on ? '插件已启用' : '插件已停用', 'ok');
+    pagePlugins();
+  } catch(e){ toast(e.message, 'err'); }
+}
+window.togglePlugin = togglePlugin;
+
+async function reloadPlugin(slug){
+  try {
+    await api('/plugins/' + encodeURIComponent(slug) + '/reload', {method:'POST'});
+    toast('已清除错误状态', 'ok');
+    pagePlugins();
+  } catch(e){ toast(e.message, 'err'); }
+}
+window.reloadPlugin = reloadPlugin;
+window.pagePlugins = pagePlugins;
 
 /* ======================= 启动 ======================= */
 (async function boot(){

@@ -42,6 +42,7 @@ features:
 | 把它跑起来 | [快速开始](/guide) |
 | 调用接口 | [API 手册](/api) |
 | 了解架构 | [设计说明](/architecture) |
+| 写个插件 | [插件开发](/plugins) |
 | 参与开发 | [GitHub 仓库](https://github.com/kuangxing6367/mail_zcx) |
 
 ## License

@@ -33,6 +33,7 @@ export default defineConfig({
       { text: '虚拟主机', link: '/deploy-shared-hosting' },
       { text: 'SMTP 入站', link: '/smtp-in' },
       { text: 'API', link: '/api' },
+      { text: '插件', link: '/plugins' },
       { text: '设计', link: '/architecture' },
       { text: 'GitHub', link: 'https://github.com/kuangxing6367/mail_zcx' },
     ],
@@ -45,6 +46,12 @@ export default defineConfig({
           { text: '宝塔面板部署', link: '/deploy-baota' },
           { text: '虚拟主机部署（无 SSH）', link: '/deploy-shared-hosting' },
           { text: 'SMTP 入站（25 端口）', link: '/smtp-in' },
+        ],
+      },
+      {
+        text: '扩展',
+        items: [
+          { text: '插件开发', link: '/plugins' },
         ],
       },
       {

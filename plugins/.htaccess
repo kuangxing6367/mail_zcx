@@ -1,0 +1,9 @@
+# 插件目录禁止通过 HTTP 直接访问（PHP 用 require 加载不受此影响）
+# 站点根指向 public/ 时本目录本来就在 web 根之外；这里覆盖「只能指向项目根」的虚拟主机。
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

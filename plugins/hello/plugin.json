@@ -1,0 +1,14 @@
+{
+  "slug": "hello",
+  "name": "示例插件",
+  "version": "1.0.0",
+  "author": "zc team",
+  "description": "演示插件机制：注册接口、读取配置、使用私有数据目录、注册事件监听",
+  "homepage": "https://github.com/kuangxing6367/mail_zcx",
+  "entry": "Plugin.php",
+  "class": "Plugins\\Hello\\Plugin",
+  "requires": {
+    "php": ">=8.0",
+    "zcmail": ">=1.1.0"
+  }
+}

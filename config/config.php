@@ -11,7 +11,7 @@
 return [
     'app' => [
         'name'     => 'ZC Mail Service',
-        'version'  => '1.0.0',
+        'version'  => '1.1.0',
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
@@ -159,5 +159,15 @@ return [
         'level' => 'debug',                   // debug | info | warning | error
         // 是否允许 /logs/{id}?include_payload=1 回显原始请求体；默认 false
         'return_payload' => false,
+    ],
+
+    // ---- 插件（生态扩展） ----
+    // 插件 = plugins/<slug>/ 目录 + plugin.json + 入口类。
+    // enabled=false 时完全不扫描插件目录；enabled=true 时只加载「控制台里启用过」的插件，
+    // 启用清单存 storage/plugins.json，不写数据库、不改表结构。
+    // 插件文件由 FTP / 面板上传，接口不提供上传 PHP 的能力。
+    'plugins' => [
+        'enabled' => true,
+        'dir'     => '',                      // 留空 = 项目根/plugins；可填绝对路径换位置
     ],
 ];

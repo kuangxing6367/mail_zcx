@@ -11,6 +11,12 @@ storage/certs/*
 storage/cache/*
 !storage/logs/.gitkeep
 
+# 插件启用状态与插件私有数据（每个部署各自维护）
+storage/plugins.json
+storage/plugins.json.tmp
+storage/plugins.lock
+storage/plugins/*
+
 # 编辑器
 .idea/
 .vscode/

@@ -120,6 +120,11 @@ $router = new Router();
 $register = require ZC_MAIL_ROOT . '/routes.php';
 $register($router);
 
+// ---- 插件 ----
+// 主路由先注册，插件后注册；两边都受同一套 API Key 鉴权约束。
+// 单个插件加载失败由 PluginManager 自行隔离，不会中断本次请求。
+\App\Core\Plugin\PluginManager::instance()->boot($router);
+
 // ---- 鉴权（入站 Webhook 走签名校验，不走 API Key） ----
 $publicPaths = ['/api/v1/hook/inbound'];
 try {

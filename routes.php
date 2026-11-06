@@ -73,5 +73,12 @@ return function (Router $r): void {
         $r->get('/settings', 'SettingsController@index', 'settings');
         $r->post('/settings', 'SettingsController@update', 'settings');
         $r->post('/settings/reset', 'SettingsController@reset', 'settings');
+
+        // ---------- 插件（生态扩展） ----------
+        // 只管启用状态，不提供上传/写入插件文件的接口
+        $r->get('/plugins', 'PluginController@index', 'plugins');
+        $r->post('/plugins/{slug}/enable', 'PluginController@enable', 'plugins');
+        $r->post('/plugins/{slug}/disable', 'PluginController@disable', 'plugins');
+        $r->post('/plugins/{slug}/reload', 'PluginController@reload', 'plugins');
     });
 };

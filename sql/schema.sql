@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS `zc_api_keys` (
   `name`         VARCHAR(128) NOT NULL DEFAULT '',
   `api_key`      VARCHAR(64)  NOT NULL                     COMMENT '仅存脱敏展示串，不参与鉴权',
   `api_key_hash` CHAR(64)              DEFAULT NULL        COMMENT 'sha256(api_key)；老数据首次鉴权时自动回填',
-  `scopes`       VARCHAR(255) NOT NULL DEFAULT '*'         COMMENT '逗号分隔的权限：send,logs,mailboxes,templates,webhooks,keys；*=全部',
+  `scopes`       VARCHAR(255) NOT NULL DEFAULT '*'         COMMENT '逗号分隔的权限：send,logs,mailboxes,templates,webhooks,keys,settings,plugins；*=全部',
   `api_secret`   VARCHAR(128) NOT NULL DEFAULT ''          COMMENT '保留字段，当前鉴权不使用',
   `status`       TINYINT      NOT NULL DEFAULT 1,
   `allow_ips`    VARCHAR(1000) NOT NULL DEFAULT ''         COMMENT 'IP 白名单，逗号分隔，空=不限；支持通配与 CIDR',

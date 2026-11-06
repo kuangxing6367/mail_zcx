@@ -340,6 +340,7 @@ Content-Type: application/json
 | `webhooks` | `/webhooks*`、`/hook/events` |
 | `keys` | `/keys*` |
 | `settings` | `/settings*`（网页端改配置） |
+| `plugins` | `/plugins*`（插件启用 / 停用） |
 
 权限不足返回 **403** `当前 API Key 缺少权限: <scope>`（早期版本误用 401，已修正）。
 鉴权失败（Key 无效/缺失）才是 401。
@@ -398,19 +399,47 @@ Content-Type: application/json
 
 ---
 
-## 8. 健康检查
+## 8. 插件管理
+
+全部需要 `plugins` scope。插件文件由 FTP / 面板上传，接口**不提供上传 PHP 的能力**。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/plugins` | 插件列表 + 启用状态 + 加载错误 + 目录/可写信息 |
+| `POST` | `/plugins/{slug}/enable` | 启用，下一个请求生效 |
+| `POST` | `/plugins/{slug}/disable` | 停用（不删文件） |
+| `POST` | `/plugins/{slug}/reload` | 清除错误状态并失效入口文件 opcache |
+
+`GET /plugins` 返回：
+
+```json
+{
+  "plugins": [{
+    "slug": "hello", "name": "示例插件", "version": "1.0.0",
+    "enabled": true, "loaded": true, "error": "",
+    "events": [], "path": "/www/wwwroot/mail/plugins/hello"
+  }],
+  "info": { "dir": ".../plugins", "writable": true, "enabled": true, "loaded": ["hello"] }
+}
+```
+
+插件加载失败会被自动停用，`error` 里是原因；主程序不受影响。详见[插件开发](/plugins)。
+
+---
+
+## 9. 健康检查
 
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.0.0", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.1.0", "time": "2026-10-13T20:49:26+08:00" } }
 ```
 
 默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。
 
 ---
 
-## 9. 入站 Webhook
+## 10. 入站 Webhook
 
 `POST /api/v1/hook/inbound`（免 API Key，但必须签名）：
 

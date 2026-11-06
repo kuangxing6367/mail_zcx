@@ -1,5 +1,31 @@
 # 更新日志
 
+## 未发布
+
+### 新增
+
+- **插件系统（生态扩展）**：`plugins/<slug>/` 目录 + `plugin.json` + 入口类，
+  注册自己的接口、数据表与计划任务入口，不改主仓库代码即可扩展
+- `PluginContext` 提供路由、配置、数据库、私有数据目录与通用事件容器；
+  **当前版本主程序不触发任何业务事件**，扩展点留待后续按实际需求接入
+- 控制台新增「插件」页：查看清单、启用/停用/重载、显示加载错误
+- 新接口 `GET /api/v1/plugins`、`POST /api/v1/plugins/{slug}/enable|disable|reload`，独立 `plugins` scope
+- 示例插件 `plugins/hello`，可直接启用验证
+- 插件文档 `docs/plugins.md`
+
+### 变更
+
+- `app.version` 更新为 `1.1.0`，`/health` 与文档示例同步
+- `deploy/apache/root.htaccess` 的禁止目录列表加入 `plugins/`
+
+### 安全
+
+- 启用状态存 `storage/plugins.json`，接口**不提供上传 PHP 文件的能力**，插件靠 FTP / 面板安装
+- slug 正则 + `realpath` 边界校验；清单损坏 / 版本不满足 / 入口异常只自动停用该插件，主程序不受影响
+- 插件注册的路由仍走同一套 API Key 鉴权
+
+---
+
 ## v1.1.0 — 2026-11-06
 
 ### 新增
