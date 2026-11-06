@@ -9,6 +9,9 @@ config/config.overrides.php.*.tmp
 storage/logs/*
 storage/certs/*
 storage/cache/*
+# 本机自动生成的加密密钥（每台部署一份，绝不能入库）
+storage/app_secret.local
+storage/app_secret.local.*.tmp
 !storage/logs/.gitkeep
 
 # 插件启用状态与插件私有数据（每个部署各自维护）

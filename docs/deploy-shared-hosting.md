@@ -118,10 +118,10 @@ return [
         'prefix'   => 'zc_',
     ],
     'security' => [
-        // 64 位随机串，随便敲键盘也行，别用示例值
-        'app_secret'  => '换成你自己的64位随机字符串',
+        // 留空 = 自动在 storage/app_secret.local 生成每台机器一份的随机密钥
+        'app_secret'  => '',
         // 网页安装器口令（装完就删 zc-install.php）
-        'setup_token' => '再换一个随机串',
+        'setup_token' => '换成你自己的随机串',
         // Web Cron 口令（用「访问 URL」计划任务时需要）
         'cron_token'  => '再换一个随机串',
     ],
@@ -278,7 +278,7 @@ DELETE FROM zc_send_jobs WHERE status IN ('done','failed') AND created_at < DATE
 |---|---|
 | 打开域名是一段 JSON | 正常。项目没有首页，控制台在 `/zc-console/` |
 | `/api/v1/...` 返回 404 或 HTML | 伪静态没生效；或方案 B 的 `.htaccess` 没上传/没被识别 |
-| 返回 503「PHP 版本不满足运行基线」 | 版本低于基线或不是安全修复版，见[宝塔/面板说明](/deploy-baota#php-版本基线)；确认已打补丁可在 config 里忽略。这是需人工处理的持久拒绝、不带 `Retry-After`，定时重试不会自行恢复 |
+| 返回 503「服务未就绪：运行环境不满足安全要求」 | 版本低于基线或不是安全修复版，具体原因在服务端 `error_log` 与 `php cli/php-check.php` 里（Web 端不回显版本细节）。这是需人工处理的持久拒绝、不带 `Retry-After`，定时重试不会自行恢复 |
 | 全部接口 500，页面空白 | PHP 版本 < 8.2，或 `pdo_mysql` 没开；先看 `storage/logs/app.log` |
 | 安装器提示「无法切换到数据库」 | 库名/用户/密码不对，或该用户没被授权到这个库（面板里重新绑定） |
 | 安装器提示 storage 不可写 | 把 `storage` 及子目录权限改成 755（部分主机要 777） |

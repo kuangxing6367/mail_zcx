@@ -27,11 +27,28 @@ class QueueService
      */
     public function enqueue(int $logId, array $payload, int $maxAttempts = 3): int
     {
+        // 正文里可能有任意二进制/非 UTF-8 内容（尤其 SMTP 入站透传的 8bit MIME）。
+        // json_encode 失败会返回 false，直接入库就是一条空载荷任务，
+        // worker 认领后必然失败，最后静默丢信 —— 这里必须当场发现。
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        $json  = json_encode($payload, $flags);
+
+        // 退化路径：把原始报文字节搬进 base64 字段再序列化，保住一个字节都不丢
+        if ($json === false && isset($payload['message']) && is_string($payload['message'])) {
+            $payload['message_b64'] = base64_encode($payload['message']);
+            $payload['message']     = '';
+            $json = json_encode($payload, $flags);
+        }
+
+        if ($json === false) {
+            throw new \RuntimeException('作业载荷序列化失败：' . json_last_error_msg());
+        }
+
         return $this->db->insert('send_jobs', [
             'log_id'         => $logId,
             'mailbox_id'     => (int) ($payload['mailbox_id'] ?? 0),
             'status'         => 'pending',
-            'payload'        => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'payload'        => $json,
             'attempts'       => 0,
             'max_attempts'   => max(1, $maxAttempts),
             'next_attempt_at' => date('Y-m-d H:i:s'),
@@ -72,43 +89,52 @@ class QueueService
         });
     }
 
-    /** 标记投递成功 */
-    public function markDone(int $jobId, string $smtpCode, string $smtpMessage, string $error, int $durationMs): void
+    /**
+     * 标记投递成功
+     *
+     * 只允许「当前认领者」写终态：任务若已被 reclaim 回收并派给另一个 worker，
+     * 原来那个慢 worker 不能把状态覆盖成 done —— 否则两封信都发出去了，
+     * 队列却只记一次，用户也只会收到一条日志。
+     *
+     * @return bool false = 已被他人接管/回收，本次写入未生效
+     */
+    public function markDone(int $jobId, string $workerId, string $smtpCode, string $smtpMessage, string $error, int $durationMs): bool
     {
-        $this->db->update('send_jobs', [
+        return $this->db->update('send_jobs', [
             'status'        => 'done',
             'smtp_code'     => mb_substr($smtpCode, 0, 16),
             'smtp_message'  => $smtpMessage,
             'last_error'    => $error !== '' ? mb_substr($error, 0, 2000) : null,
             'duration_ms'   => $durationMs,
             'finished_at'   => date('Y-m-d H:i:s'),
-        ], 'id = :id', ['id' => $jobId]);
+        ], "id = :id AND status = 'processing' AND reserved_by = :w", ['id' => $jobId, 'w' => $workerId]) > 0;
     }
 
-    /** 标记最终失败（用尽重试） */
-    public function markFailed(int $jobId, string $error): void
+    /** 标记最终失败（用尽重试）；同 markDone，仅当前认领者可写 */
+    public function markFailed(int $jobId, string $workerId, string $error): bool
     {
-        $this->db->update('send_jobs', [
+        return $this->db->update('send_jobs', [
             'status'       => 'failed',
             'last_error'   => mb_substr($error, 0, 2000),
             'finished_at'  => date('Y-m-d H:i:s'),
-        ], 'id = :id', ['id' => $jobId]);
+        ], "id = :id AND status = 'processing' AND reserved_by = :w", ['id' => $jobId, 'w' => $workerId]) > 0;
     }
 
     /**
      * 标记需重试：attempts +1，并推后 next_attempt_at
-     * 只允许从 processing/pending 回退，绝不把已 done/failed 的任务重新激活
+     * 只允许当前认领者把自己手上的 processing 任务退回 pending：
+     * 若任务已被 reclaim 回收并重新派发，这里不能再去改别人的状态。
      */
-    public function markRetry(int $jobId, string $error, int $nextDelaySec): void
+    public function markRetry(int $jobId, string $workerId, string $error, int $nextDelaySec): bool
     {
-        $this->db->query(
+        return $this->db->query(
             "UPDATE `{$this->table}`
              SET status = 'pending', attempts = attempts + 1,
                  last_error = ?, next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
                  reserved_at = NULL, reserved_by = ''
-             WHERE id = ? AND status IN ('processing','pending')",
-            [mb_substr($error, 0, 2000), max(1, $nextDelaySec), $jobId]
-        );
+             WHERE id = ? AND status = 'processing' AND reserved_by = ?",
+            [mb_substr($error, 0, 2000), max(1, $nextDelaySec), $jobId, $workerId]
+        )->rowCount() > 0;
     }
 
     /**

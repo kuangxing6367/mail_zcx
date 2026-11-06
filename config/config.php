@@ -11,7 +11,7 @@
 return [
     'app' => [
         'name'     => 'ZC Mail Service',
-        'version'  => '1.2.0',
+        'version'  => '1.3.0',
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
@@ -30,7 +30,10 @@ return [
     ],
 
     'security' => [
-        // 用于 SMTP 密码对称加密 & Webhook 签名派生，务必改成随机长字符串
+        // SMTP 密码加密的根密钥。
+        // 留空 = 首次使用时在 storage/app_secret.local 自动生成一台机器一份的随机密钥（推荐）。
+        // 也可以自己填 64 位随机串；一旦改了，旧密码需要重新录入。
+        // ⚠ 下面这个出厂值只用于解开「历史上用它加密过的数据」，不会再用于加密。
         'app_secret'      => 'change-me-to-a-random-64-char-string',
         // 是否强制 API Key 鉴权（生产必须 true）
         'require_api_key' => true,
@@ -44,12 +47,16 @@ return [
         // 鉴权失败锁定：窗口内失败达到 limit 次后，该 IP 在窗口内一律返回「API Key 无效」
         'auth_fail_limit' => 10,
         'auth_fail_window'=> 600,
+        // 请求体上限（字节）。php://input 不受 post_max_size 约束，超限直接 413。
+        // 默认 16MB：要装得下 10MB 附件经 base64 膨胀后的 ~13.4MB。
+        'max_body_bytes'  => 16777216,
         // 时间戳容差（秒），保留字段，当前鉴权链路未使用
         'timestamp_window'=> 300,
         // 入站 Webhook（/api/v1/hook/inbound）签名密钥；留空 = 该接口禁用（返回 403）
         'inbound_secret'  => '',
-        // CORS 允许的来源：'*' 表示任意；生产可填具体域名（逗号分隔）
-        'cors_origins'    => '*',
+        // CORS 允许的来源：默认空 = 不发 CORS 头（同源部署不需要）。
+        // 需要跨域时填具体域名（逗号分隔）；'*' 表示任意来源，仅限公开只读场景。
+        'cors_origins'    => '',
         // 秘密入口前缀：非空时 API 挂载点变为 /<前缀>/api/v1，直接访问 /api/v1 返回 404
         // 例：设为 'x9m2kq' 后，真实接口为 https://域名/x9m2kq/api/v1/...；控制台需同步设置 API_ENTRY
         'api_entry'       => '',
@@ -157,8 +164,11 @@ return [
         // 填了则要求用户名与此完全一致（密码仍是 API Key）
         'auth_username'   => '',
         'allow_ips'       => [],              // 入站 IP 白名单，空 = 不限制；支持 192.168.1.*
-        // nginx stream 开了 proxy_protocol on 时置 true，才能拿到真实客户端 IP
+        // nginx stream 开了 proxy_protocol on 时置 true，才能拿到真实客户端 IP。
+        // ⚠ 只有建连地址命中 trusted_proxies 时才采信 PROXY 头：
+        //   否则任何直连客户端发一行 "PROXY TCP4 1.2.3.4 ..." 就能伪造源 IP 绕过 allow_ips。
         'proxy_protocol'  => true,
+        'trusted_proxies' => ['127.0.0.1', '::1'],
         // 重写头部 From 为本服务选中的发件邮箱。QQ/163 等会校验发件人一致性，
         // 不重写基本必被拒（554/550）；原发件人会写进 Reply-To 保留回信线索
         'rewrite_from'    => true,

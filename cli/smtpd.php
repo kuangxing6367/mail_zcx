@@ -62,6 +62,8 @@ final class SmtpSession
     private $conn;
     private array $cfg;
     private string $peerIp;
+    /** 直连方地址（accept 得到的），PROXY 头的可信判断只看它 */
+    private string $directIp;
     private bool $verbose;
 
     private bool $secured       = false;
@@ -73,10 +75,11 @@ final class SmtpSession
 
     public function __construct($conn, string $peerIp, array $cfg, bool $verbose)
     {
-        $this->conn    = $conn;
-        $this->peerIp  = $peerIp;
-        $this->cfg     = $cfg;
-        $this->verbose = $verbose;
+        $this->conn     = $conn;
+        $this->peerIp   = $peerIp;
+        $this->directIp = $peerIp;
+        $this->cfg      = $cfg;
+        $this->verbose  = $verbose;
     }
 
     public function serve(): void
@@ -86,11 +89,18 @@ final class SmtpSession
 
         // ---- PROXY protocol v1（nginx stream 转发时携带真实客户端 IP）----
         //
-        // 关键点：走 nginx 时 PROXY 行是 nginx 立刻发来的，读它没问题；
-        // 但客户端直连时会先等服务器 220 问候，直接 fgets 会互相等死。
-        // 所以先短探测 0.5s：有数据且以 PROXY 开头才消费，否则按普通 SMTP 处理。
+        // 关键点 1：走 nginx 时 PROXY 行是 nginx 立刻发来的，读它没问题；
+        //           但客户端直连时会先等服务器 220 问候，直接 fgets 会互相等死。
+        //           所以先短探测 0.5s：有数据且以 PROXY 开头才消费。
+        // 关键点 2：**只信可信来源**。PROXY 行是纯文本，任何直连客户端都能自己发一行
+        //           "PROXY TCP4 1.2.3.4 ..." 把源 IP 改成任意值，从而绕过 allow_ips。
+        //           因此只有建连方（accept 得到的地址）命中 trusted_proxies 时才采信。
         $first = '';
-        if ((bool) ($this->cfg['proxy_protocol'] ?? true)) {
+        $trustedProxies = (array) ($this->cfg['trusted_proxies'] ?? ['127.0.0.1', '::1']);
+        $proxyAllowed   = (bool) ($this->cfg['proxy_protocol'] ?? true)
+            && $this->ipAllowed($this->directIp, $trustedProxies);
+
+        if ($proxyAllowed) {
             $read = [$this->conn];
             $w = $e = null;
             $ready = @stream_select($read, $w, $e, 0, 500000);
@@ -223,6 +233,12 @@ final class SmtpSession
 
     private function handleAuth(string $line): void
     {
+        if (\App\Core\Auth::lockedOut($this->peerIp)) {
+            $this->log('AUTH 被拒：该 IP 失败次数已达阈值');
+            $this->reply('421', '4.7.0 Too many authentication failures, try again later');
+            return;
+        }
+
         if ($this->secured === false && $this->tlsEnabled()) {
             // 有证书但客户端没先 STARTTLS：提示一下，不强制（内网老设备可能不支持）
             $this->log('警告：客户端在明文连接上直接 AUTH');

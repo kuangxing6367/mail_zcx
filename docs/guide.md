@@ -84,12 +84,20 @@ php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extensi
 
 > 部署前先看这一节。
 
-本项目**默认会拒绝在不符合基线的 PHP 上启动**：Web 请求返回 `503` 并附带原因，
+本项目**默认会拒绝在不符合基线的 PHP 上启动**：Web 请求返回 `503`，
 CLI（`cli/worker.php`、`cli/smtpd.php`、`cli/install.php`）打印原因后非零退出，
 网页安装器直接禁用安装按钮。这不是提示，是故意的拒绝服务。
 
 `503` 在这里表示「环境不合规、需人工处理」，不是临时过载：响应**不带 `Retry-After`**，
 客户端定时重试不会让 PHP 自己升级，必须由运维升级运行时或显式放行。
+
+**Web 端不再回显版本号与策略细节**：匿名访问者只会看到一句通用提示，
+`current` / `baseline_as_of` / `reason` / `hint` 全部只写服务端 `error_log`。
+想在自己机器上看到完整原因，跑：
+
+```bash
+php cli/php-check.php
+```
 
 ### 为什么
 
@@ -329,7 +337,7 @@ curl https://your-domain.com/health
 ```
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.2.0" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.0" } }
 ```
 
 无 Key 访问业务接口应返回 401，说明鉴权生效：

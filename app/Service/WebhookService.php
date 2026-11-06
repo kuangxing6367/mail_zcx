@@ -284,6 +284,20 @@ class WebhookService
         }
 
         $payload = $req->all();
+
+        // 防重放：签名只证明「内容没被改」，不证明「这是新请求」。
+        // 抓到一个合法请求后可以原样重放无数次，所以带时间戳时校验新鲜度；
+        // 老调用方不带 timestamp 的仍然放行（兼容），但日志里会留痕。
+        $window = (int) Config::get('security.timestamp_window', 300);
+        $ts     = (int) ($payload['timestamp'] ?? 0);
+        if ($ts > 0 && $window > 0 && abs(time() - $ts) > $window) {
+            Logger::warning('入站事件时间戳超窗，拒绝', ['ts' => $ts, 'window' => $window, 'ip' => $req->ip()]);
+            throw new RuntimeException('入站事件时间戳超出容差（疑似重放）');
+        }
+        if ($ts <= 0) {
+            Logger::info('入站事件未带 timestamp，无法做重放校验', ['ip' => $req->ip()]);
+        }
+
         $event = (string) ($payload['event'] ?? $payload['type'] ?? $req->header('x-zc-event') ?? 'unknown');
 
         $id = $this->db->insert('inbound_events', [
@@ -327,13 +341,43 @@ class WebhookService
 
     private function httpPost(string $url, string $body, array $headers, int $timeout): array
     {
-        // 所有出站回调（配置的 webhook、按次 callback_url、测试）都必须过这道门
-        self::assertSafeUrl($url);
+        // 重定向不交给 curl 自动跟随：curl 跟随时只看协议不看目标地址，
+        // 对方回一个 302 → http://127.0.0.1:8080/ 就能绕过整套 SSRF 防护。
+        // 这里手动跳转，每一跳都重新过 assertSafeUrl。
+        $follow  = (bool) Config::get('webhook.follow_redirect', false);
+        $maxHops = $follow ? 3 : 0;
+        $current = $url;
+        $result  = ['code' => 0, 'body' => '', 'error' => ''];
 
-        $verifyTls  = (bool) Config::get('webhook.verify_tls', true);
-        $follow     = (bool) Config::get('webhook.follow_redirect', false);
+        for ($hop = 0; ; $hop++) {
+            self::assertSafeUrl($current);
+            $result = $this->httpOnce($current, $body, $headers, $timeout);
+
+            if (!$follow || $hop >= $maxHops) {
+                return $result;
+            }
+            if ($result['code'] < 300 || $result['code'] >= 400) {
+                return $result;
+            }
+            $location = trim((string) ($result['location'] ?? ''));
+            if ($location === '') {
+                return $result;
+            }
+            $next = $this->resolveRedirect($current, $location);
+            if ($next === null) {
+                return $result;
+            }
+            $current = $next;
+        }
+    }
+
+    /** 单次请求（不跟随跳转），额外返回 Location 便于上层判断 */
+    private function httpOnce(string $url, string $body, array $headers, int $timeout): array
+    {
+        $verifyTls = (bool) Config::get('webhook.verify_tls', true);
 
         if (function_exists('curl_init')) {
+            $location = '';
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_POST           => true,
@@ -344,20 +388,25 @@ class WebhookService
                 CURLOPT_CONNECTTIMEOUT => max(2, min(3, $timeout)),
                 CURLOPT_SSL_VERIFYPEER => $verifyTls,
                 CURLOPT_SSL_VERIFYHOST => $verifyTls ? 2 : 0,
-                CURLOPT_FOLLOWLOCATION => $follow,
-                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_FOLLOWLOCATION => false,
                 CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-                CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
                 CURLOPT_USERAGENT      => (string) Config::get('webhook.user_agent', 'ZC-Mail-Service'),
+                CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$location): int {
+                    if (stripos($line, 'location:') === 0) {
+                        $location = trim(substr($line, 9));
+                    }
+                    return strlen($line);
+                },
             ]);
             $resp = curl_exec($ch);
             $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err  = curl_error($ch);
             curl_close($ch);
-            return ['code' => $code, 'body' => (string) $resp, 'error' => $err];
+            return ['code' => $code, 'body' => (string) $resp, 'error' => $err, 'location' => $location];
         }
 
         // 无 curl 时用 stream 兜底
+        $location = '';
         $ctx = stream_context_create([
             'http' => [
                 'method'        => 'POST',
@@ -365,17 +414,42 @@ class WebhookService
                 'content'       => $body,
                 'timeout'       => $timeout,
                 'ignore_errors' => true,
-                'follow_location' => $follow ? 1 : 0,
-                'max_redirects' => 3,
+                'follow_location' => 0,
             ],
             'ssl' => ['verify_peer' => $verifyTls, 'verify_peer_name' => $verifyTls],
         ]);
         $resp = @file_get_contents($url, false, $ctx);
         $code = 0;
-        if (isset($http_response_header[0]) && preg_match('#\s(\d{3})\s#', $http_response_header[0], $m)) {
-            $code = (int) $m[1];
+        foreach ((array) ($http_response_header ?? []) as $h) {
+            if (preg_match('#^HTTP/\S+\s(\d{3})#i', $h, $m)) {
+                $code = (int) $m[1];
+                $location = '';
+            } elseif (stripos($h, 'location:') === 0) {
+                $location = trim(substr($h, 9));
+            }
         }
-        return ['code' => $code, 'body' => (string) $resp, 'error' => $resp === false ? 'request failed' : ''];
+        return ['code' => $code, 'body' => (string) $resp, 'error' => $resp === false ? 'request failed' : '', 'location' => $location];
+    }
+
+    /** 把 Location 解析成绝对地址；非法或非 http(s) 返回 null */
+    private function resolveRedirect(string $base, string $location): ?string
+    {
+        if (preg_match('#^https?://#i', $location)) {
+            return $location;
+        }
+        $p = parse_url($base);
+        if (!$p || empty($p['scheme']) || empty($p['host'])) {
+            return null;
+        }
+        $origin = $p['scheme'] . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '');
+        if (str_starts_with($location, '//')) {
+            return $p['scheme'] . ':' . $location;
+        }
+        if (str_starts_with($location, '/')) {
+            return $origin . $location;
+        }
+        $dir = isset($p['path']) ? rtrim(dirname($p['path']), '/') . '/' : '/';
+        return $origin . $dir . $location;
     }
 
     /**

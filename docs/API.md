@@ -18,10 +18,17 @@
 | `403` | 无权限 |
 | `404` | 资源不存在 / 接口不存在 |
 | `405` | 请求方法不允许 |
+| `413` | 请求体超过 `security.max_body_bytes`（默认 16MB） |
 | `1001` | 邮件发送失败（SMTP 层错误，详见 `data.error`） |
 | `500` | 服务器内部错误 |
 
 > 除 `/api/v1/hook/inbound` 与 `/health` 外，所有接口都需要 API Key。
+>
+> Key 只从请求头读取：`X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`。
+> URL 传参不会生效（避免进 access log 与 Referer）。
+> 含 `*` 的值一律拒绝——那是 `keys` 列表里的脱敏展示串，不能当凭证用。
+>
+> 所有 API 响应带 `Cache-Control: no-store`，中间缓存不会留存发信内容与日志。
 
 ---
 
@@ -276,6 +283,10 @@ Content-Type: application/json
 
 > 如需签名校验，在 `config.php` 设 `security.inbound_secret`，
 > 请求需带 `X-ZC-Signature: sha256=<hmac(rawBody, secret)>`，校验失败返回 400。
+>
+> **防重放**：body 里带 `timestamp`（Unix 秒）时，与服务器时间相差超过
+> `security.timestamp_window`（默认 300 秒）会被拒绝。建议发送方始终带上——
+> 不带仍能通过（兼容老调用方），但记 warning，且同一个合法请求可以被无限重放。
 
 #### `GET /hook/events` — 入站事件列表
 
@@ -432,7 +443,7 @@ Content-Type: application/json
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.2.0", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.0", "time": "2026-10-13T20:49:26+08:00" } }
 ```
 
 默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。

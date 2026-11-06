@@ -41,7 +41,7 @@
 | **多邮箱管理** | 每个账号独立配置 SMTP 主机 / 端口 / 加密方式（465=SSL、587=STARTTLS、25=明文），密码 AES-256-GCM 加密落库 |
 | **智能选箱** | 默认选择**累计发件数最少**的邮箱；也可按权重 / 轮询 / 随机，或显式指定。选中即在事务内**原子预占**计数，并发不会全选同一邮箱 |
 | **HTTP API** | 全 REST 语义，JSON 与表单混合入参，`_method` 可覆盖；统一响应格式与错误码 |
-| **API Key 鉴权** | Header / Query / Bearer 三种携带方式，支持 IP 白名单（通配）、分钟级限流与有效期 |
+| **API Key 鉴权** | 仅从请求头读取（`X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`），不支持 URL 传参；支持 IP 白名单（通配/CIDR）、分钟级限流与有效期 |
 | **邮件模板** | `{{变量}}` 渲染（含点号路径），HTML + 纯文本双版本，未匹配变量可追踪 |
 | **Webhook 出站** | 发信结果异步回调，HMAC-SHA256 签名（`X-ZC-Signature`），失败自动重试，投递全程留痕 |
 | **Webhook 入站** | 暴露 `/api/v1/hook/inbound` 接收外部事件，可选签名校验与二次转发 |
@@ -244,11 +244,8 @@ php -d extension=pdo_mysql -d extension=openssl -d extension=mbstring -d extensi
 ```bash
 BASE=https://mail.example.com
 
-# 请求头方式（推荐）
+# 请求头方式（唯一方式：Key 不从 URL 读，避免进 access log / Referer）
 curl -H "X-API-Key: zc_xxxxxxxx" $BASE/api/v1/mailboxes
-
-# 也支持 query 参数
-curl -H "X-API-Key: zc_xxxxxxxx" "$BASE/api/v1/mailboxes"
 
 # 也支持 Bearer
 curl -H "Authorization: Bearer zc_xxxxxxxx" $BASE/api/v1/mailboxes
@@ -380,10 +377,12 @@ $data = json_decode($raw, true);   // ['event'=>'success','data'=>[...]]
 
 1. **改掉默认 API Key**：安装后立即在控制台轮换（`POST /api/v1/keys/{id}/rotate`）。
    库里只存 `sha256(key)`，丢失后无法找回，只能轮换。
-2. **设置强 `app_secret`**：用于加密 SMTP 密码，泄露等于泄露所有邮箱授权码。
-   从环境变量 `ZC_APP_SECRET` 注入，不要写在代码或 `/tmp` 文件里。
+2. **根密钥**：`security.app_secret` 留空即可 —— 首次运行会在 `storage/app_secret.local`
+   自动生成**每台机器一份**的随机密钥（已加入 `.gitignore`），不再有「所有人共用出厂常量」的问题。
+   也可以自己注入强的 64 位随机串；换钥匙后旧 SMTP 密码需重新录入（解密会尝试历史密钥）。
 3. **按需发 scope**：给调用方的 Key 只配它需要的权限（`send` / `logs` / `mailboxes` /
    `templates` / `webhooks` / `keys`），不要一律用 `*`。发信 Key 不应该能改邮箱、删密钥。
+   注意 `keys` scope 能看到所有 Key 的脱敏展示串——展示串**不能**当凭证用（已强制拒绝含 `*` 的 Key）。
 4. **限制 IP**：给 Key 配置 `allow_ips`，或设全局 `security.allow_ips`（支持 `10.0.0.0/8`）。
    注意 `security.trusted_proxies` 只填你自己的反代地址，否则 `X-Forwarded-For` 可伪造。
 5. **生产关调试**：`app.debug = false`（默认已关闭），避免异常堆栈外泄。
@@ -398,6 +397,9 @@ $data = json_decode($raw, true);   // ['event'=>'success','data'=>[...]]
 11. **反代/CDN 前先验证 API 可达**：若套 Cloudflare，注意 Bot Fight Mode / 托管质询会拦截
     **服务端**调用（curl 会拿到 HTML 质询页而不是 JSON）。请对 `/api/*` 配置 WAF 跳过规则，
     或关闭 API 域的浏览器完整性检查。
+12. **默认值是收紧的**：`cors_origins` 默认空（不发 CORS 头）、请求体上限 16MB
+    （`security.max_body_bytes`）、API 响应统一 `Cache-Control: no-store`。
+    有跨域需求再显式填域名，别图省事写 `*`。
 
 ---
 

@@ -203,7 +203,8 @@ return [
         'prefix'   => 'zc_',
     ],
     'security' => [
-        'app_secret'      => 'openssl rand -hex 32 生成的结果',
+        // 留空即可：首次运行会在 storage/app_secret.local 自动生成每台机器一份的随机密钥
+        'app_secret'      => '',
         'require_api_key' => true,
         'allow_ips'       => [],
         'api_entry'       => '',
@@ -212,14 +213,14 @@ return [
 ];
 ```
 
-生成随机密钥：
+想自己管根密钥再填（`openssl rand -hex 32`）：
 
 ```bash
 openssl rand -hex 32
 ```
 
 > `config.local.php` 不要提交到公开仓库（已在 `.gitignore`）。
-> `app_secret` 一旦更换，已入库的邮箱 SMTP 密码将无法解密。
+> 手工设置 `app_secret` 后一旦更换，已入库的邮箱 SMTP 密码将无法解密，需要重新录入。
 
 ## 8. 权限
 

@@ -34,9 +34,15 @@ class WorkerRunner
         $this->mailer       = new Mailer();
         $this->maxAttempts  = max(1, (int) Config::get('mail.queue.max_attempts', 3));
         $this->batch        = max(1, (int) Config::get('mail.queue.batch', 10));
-        $this->stuckTimeout = max(30, (int) Config::get('mail.queue.stuck_timeout', 300));
         $this->retryBase    = max(1, (int) Config::get('mail.queue.retry_base', 30));
         $this->logger       = $logger;
+
+        // 回收阈值必须 > 一批任务的最坏耗时，否则「还在正常投递」的任务会被当成卡死：
+        // 一批 batch 封 × 每封 total_timeout，正好等于默认的 300s。
+        // 一旦被别的实例回收并重发，就是重复发信。这里取「批次上限 + 60s 余量」与配置的较大值。
+        $perJob     = max(1, (int) Config::get('mail.total_timeout', 30)) + 5;
+        $minStuck   = $this->batch * $perJob + 60;
+        $this->stuckTimeout = max($minStuck, (int) Config::get('mail.queue.stuck_timeout', 300));
 
         // 投递发生在后台/计划任务里，回调必须同步做完，
         // 否则 fastcgi_finish_request 之后进程被回收会把回调截断。
@@ -70,7 +76,8 @@ class WorkerRunner
             $limit = min($this->batch, $maxJobs);
         }
 
-        $jobs = $this->queue->claim($limit, $this->workerId());
+        $workerId = $this->workerId();
+        $jobs = $this->queue->claim($limit, $workerId);
         $stat['claimed'] = count($jobs);
 
         foreach ($jobs as $job) {
@@ -83,13 +90,20 @@ class WorkerRunner
 
                 if ($result['status'] === 'success') {
                     $this->mailer->finalizeLog($payload, $result);
-                    $this->queue->markDone(
+                    if (!$this->queue->markDone(
                         $jobId,
+                        $workerId,
                         (string) $result['smtp_code'],
                         (string) $result['smtp_message'],
                         (string) ($result['error'] ?? ''),
                         (int) $result['duration_ms']
-                    );
+                    )) {
+                        // 任务在投递期间被回收并派给了别的实例：邮件已经发出去了，
+                        // 这里不能覆盖状态，只留痕，避免「重复发信 + 状态打架」
+                        Logger::warning('任务已被回收，放弃回写终态（邮件可能已重复投递）', [
+                            'job_id' => $jobId, 'worker' => $workerId,
+                        ]);
+                    }
                     try {
                         $this->mailer->finalizeCallback($payload, $result);
                     } catch (\Throwable $e) {
@@ -105,7 +119,7 @@ class WorkerRunner
                     $stat['done']++;
                     $this->log("job#{$jobId} 投递成功 log#{$payload['log_id']} ({$result['duration_ms']}ms)");
                 } else {
-                    $stat[$this->retryOrFail($jobId, $payload, $result, $attempts)]++;
+                    $stat[$this->retryOrFail($jobId, $workerId, $payload, $result, $attempts)]++;
                 }
             } catch (\Throwable $e) {
                 $result = [
@@ -115,7 +129,7 @@ class WorkerRunner
                     'error'        => $e->getMessage(),
                     'duration_ms'  => 0,
                 ];
-                $stat[$this->retryOrFail($jobId, $payload, $result, $attempts)]++;
+                $stat[$this->retryOrFail($jobId, $workerId, $payload, $result, $attempts)]++;
             }
         }
 
@@ -142,13 +156,17 @@ class WorkerRunner
     }
 
     /** @return string done|failed|retry */
-    private function retryOrFail(int $jobId, array $payload, array $result, int $attempts): string
+    private function retryOrFail(int $jobId, string $workerId, array $payload, array $result, int $attempts): string
     {
         $nextAttempts = $attempts + 1;
         $error        = (string) ($result['error'] ?? '投递失败');
 
         if ($nextAttempts >= $this->maxAttempts) {
-            $this->queue->markFailed($jobId, $error);
+            $written = $this->queue->markFailed($jobId, $workerId, $error);
+            if (!$written) {
+                Logger::warning('任务已被回收，放弃写失败终态', ['job_id' => $jobId, 'worker' => $workerId]);
+                return 'failed';
+            }
             try {
                 $this->mailer->finalize($payload, $result);
             } finally {
@@ -159,7 +177,10 @@ class WorkerRunner
         }
 
         $delay = max(1, (int) ($this->retryBase * (2 ** ($nextAttempts - 1))));
-        $this->queue->markRetry($jobId, $error, $delay);
+        if (!$this->queue->markRetry($jobId, $workerId, $error, $delay)) {
+            Logger::warning('任务已被回收，放弃写重试状态', ['job_id' => $jobId, 'worker' => $workerId]);
+            return 'retry';
+        }
         $this->log("job#{$jobId} 投递失败，{$delay}s 后重试（第 {$nextAttempts}/{$this->maxAttempts} 次）: {$error}");
         return 'retry';
     }

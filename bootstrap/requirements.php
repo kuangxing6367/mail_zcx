@@ -250,7 +250,7 @@ if (!function_exists('zc_php_guard')) {
 
         // 这是「环境不合规、需人工处理」的持久拒绝，不是临时过载：
         // 不发 Retry-After —— 一小时后自动重试不会让 PHP 自己升级。
-        $message = 'ZC Mail 拒绝启动：当前 PHP ' . $info['version'] . ' 不满足运行基线。'
+        $detail = '当前 PHP ' . $info['version'] . ' 不满足运行基线。'
             . "\n原因：" . $info['reason']
             . "\n建议：" . $info['hint']
             . "\n若发行版 / 面板已回补 CVE-2026-109618、CVE-2026-109619 补丁，"
@@ -258,26 +258,25 @@ if (!function_exists('zc_php_guard')) {
             . "'security' => ['ignore_php_requirement' => true] 后重启。";
 
         if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') {
-            fwrite(STDERR, $message . "\n");
+            // CLI 是运维本人在跑，版本与策略细节都给他
+            fwrite(STDERR, 'ZC Mail 拒绝启动：' . $detail . "\n");
         } else {
-            @error_log($message);
+            // 匿名访问者不该拿到「你跑的是 8.2.34 / 基线截止日 / 补丁策略」——
+            // 那是给攻击者做指纹和挑版本用的。细节只进服务端日志。
+            @error_log('ZC Mail 拒绝启动（PHP 基线）：' . $detail);
             if (!headers_sent()) {
+                // PHP 自带的 X-Powered-By: PHP/8.3.6 也是版本指纹，一并抹掉
+                @header_remove('X-Powered-By');
                 http_response_code(503);
                 header('Content-Type: application/json; charset=utf-8');
-                header('Cache-Control: no-store');
+                header('Cache-Control: no-store, no-cache, must-revalidate, private');
+                header('Pragma: no-cache');
+                header('X-Content-Type-Options: nosniff');
             }
             echo json_encode(array(
                 'code' => 503,
-                'msg'  => 'PHP 版本不满足运行基线，服务已拒绝启动；需升级 PHP 或由运维显式放行，重试不会自动恢复',
-                'data' => array(
-                    'current'        => $info['version'],
-                    'syntax_min'     => $info['syntax_min'],
-                    'deploy_min'     => $info['deploy_min'],
-                    'level'          => $info['level'],
-                    'baseline_as_of' => $info['baseline_as_of'],
-                    'reason'         => $info['reason'],
-                    'hint'           => $info['hint'],
-                ),
+                'msg'  => '服务未就绪：运行环境不满足安全要求，请联系管理员处理（重试不会自动恢复）',
+                'data' => null,
             ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
         exit(1);

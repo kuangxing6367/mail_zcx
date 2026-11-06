@@ -1,5 +1,68 @@
 # 更新日志
 
+## v1.3.0 — 2026-11-07
+
+安全修复与默认值收紧。**建议所有部署升级**：其中第一条是可直接提权到 `*` 的鉴权缺陷。
+
+### 安全
+
+- **修复：API Key 脱敏展示串可被当成凭证。**
+  `keys` 列表接口返回的是 `d6d53ef6******cff8` 这类展示串，它同时存在 `api_key` 列里；
+  鉴权在哈希未命中时会用 `api_key = ?` 回退查库，于是把展示串发过来就会命中，
+  被当作「老库明文」写回哈希，从而以该行的全部 scope 通过鉴权。
+  现在：含 `*` 的 Key 一律不走兼容分支（SQL 侧也排除），自定义 Key 不允许含 `*`。
+- **修复：入站 SMTP 无条件信任 PROXY 头。** 任何直连客户端发一行
+  `PROXY TCP4 1.2.3.4 ...` 就能改写源 IP，绕过 `smtp_in.allow_ips`。
+  新增 `smtp_in.trusted_proxies`，只有建连地址命中时才采信 PROXY 头。
+- **修复：SMTP AUTH 无失败锁定。** 复用 `security.auth_fail_limit` / `auth_fail_window`，
+  超阈值直接 `421`，不再允许无限猜 Key。
+- **修复：入站 Webhook 无重放保护。** `security.timestamp_window` 从死配置变为生效：
+  payload 带 `timestamp` 且超窗时拒绝；未带时间戳的请求放行但记日志（兼容老调用方）。
+- **修复：503 守卫泄露版本与策略。** 之前把 `current` / `baseline_as_of` / `reason` / `hint`
+  回给匿名访问者，等于报出「你跑 8.2.34、基线截止日、忽略开关叫什么」。
+  现在 Web 只回通用提示，细节只进 `error_log`，并抹掉 `X-Powered-By: PHP/x.y.z`。
+- **修复：出站回调跟随 3xx 时绕过 SSRF 防护。** 改为手动跳转，每一跳都重新校验目标地址。
+
+### 修复
+
+- **旧库升级路径跑不通**：`sql/schema.sql` 的种子 `INSERT` 已带 `api_key_hash` 列，
+  而补列 `ALTER` 在其后执行，老库升级必然报 `Unknown column 'api_key_hash'`。
+  现在先补列再导 schema（`CREATE TABLE IF NOT EXISTS` 天然幂等），升级后自动回填摘要并脱敏。
+- **队列可能重复发信**：`stuck_timeout`（默认 300s）与 `batch(10) × total_timeout(30s)` 正好打平，
+  另一实例会回收「还在正常投递」的任务；且 `markDone` / `markFailed` / `markRetry`
+  不校验 `reserved_by`，原 worker 事后仍会覆盖状态。
+  现在回收阈值取 `max(batch × (total_timeout+5) + 60, 配置值)`，三个终态写入都要求
+  `status='processing' AND reserved_by=当前 worker`。
+- **队列静默丢信**：`json_encode` 失败（非 UTF-8 报文）时会把空载荷入库，重试 3 次后失败。
+  现在序列化失败直接抛错并回滚；SMTP 透传的非 UTF-8 报文自动转 `message_b64`，一个字节不丢。
+- **入队失败未回滚日志**：`/send` 入队异常时把已落库的 `pending` 日志收口为 `failed`。
+
+### 变更（默认值收紧）
+
+- `security.cors_origins` 默认改为空：不发 CORS 头（同源部署不需要）。要跨域请显式填域名，`*` 仅用于公开只读场景。
+- 新增 `security.max_body_bytes`（默认 16MB）：`php://input` 不受 `post_max_size` 约束，
+  超限直接 `413`，避免一个超大 JSON 打满 FPM 内存。
+- API 响应统一 `Cache-Control: no-store` + `X-Content-Type-Options: nosniff`。
+- **根密钥不再依赖出厂常量**：`security.app_secret` 留空或仍是出厂值时，
+  首次运行自动生成 `storage/app_secret.local`（32 字节，0600，已 gitignore），每台机器一份。
+  解密会依次尝试候选密钥，用出厂常量加密过的历史数据仍能解开。
+- `mail.charset` 此前是死配置，现在真正传给 `MimeBuilder`。
+
+### 文档
+
+- README 删掉「也支持 query 参数传 Key」——代码一直只认请求头（`X-API-Key` / `X-ZC-Key` / `Bearer`）。
+- 安全建议与默认值对齐：补根密钥自动生成、CORS 默认收紧、请求体上限、`keys` scope 与展示串的关系。
+- `guide` / `architecture` / `deploy-baota` / `deploy-shared-hosting` 同步密钥派生与 503 行为。
+
+### 真机验证（192.168.0.105）
+
+早期功能 47/47 · 安全 33/33 · 扩展点 67/67 · 插件 41/41 · 设置 40/40 · 设置权限 10/10 ·
+PHP 基线 HTTP 3 组（8.2.34→503 无版本泄露、8.3.36→200、8.1.35+放行→200）·
+脱敏串鉴权→401 · 16MB+ 请求体→413 · 旧库升级（补列/回填/脱敏/幂等）全通过 ·
+队列回收竞态 13/13 · 密钥派生与历史密文兼容 7/7 · PROXY 伪造与入站重放 6/6。
+
+---
+
 ## v1.2.0 — 2026-11-06
 
 插件生态、业务扩展点与 PHP 运行基线。相对 v1.1.0 的功能增量。

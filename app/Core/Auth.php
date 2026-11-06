@@ -99,6 +99,19 @@ class Auth
         }
     }
 
+    /**
+     * 供 SMTP 入站等非 HTTP 入口复用：该 IP 是否已触发失败锁定。
+     * 不在这里返回具体失败原因，调用方一律回通用错误，避免枚举。
+     */
+    public static function lockedOut(string $ip): bool
+    {
+        $limit = (int) Config::get('security.auth_fail_limit', 10);
+        if ($limit <= 0 || $ip === '') {
+            return false;
+        }
+        return self::failCount($ip, (int) Config::get('security.auth_fail_window', 600)) >= $limit;
+    }
+
     private static function extractKey(Request $req): string
     {
         // 只接受请求头携带，避免 Key 进 URL / access log / Referer
@@ -127,9 +140,17 @@ class Auth
 
         $row = $db->fetch("SELECT * FROM `{$table}` WHERE api_key_hash = ? LIMIT 1", [$hash]);
 
-        // 兼容历史明文数据：命中后立即就地升级为哈希，明文替换为脱敏展示串
-        if (!$row && $key !== '') {
-            $legacy = $db->fetch("SELECT * FROM `{$table}` WHERE api_key = ? LIMIT 1", [$key]);
+        // 兼容历史明文数据：命中后立即就地升级为哈希，明文替换为脱敏展示串。
+        //
+        // ⚠ api_key 列同时存着 zc_7d08f1******41f7 这类**展示串**（keys 列表接口会原样返回）。
+        // 如果不把含 '*' 的值排除，任何人拿展示串当 Key 发过来都会命中这一支，
+        // 被当作「老库明文」写回哈希，从而以该行的全部 scope 通过鉴权 —— 等于脱敏串即凭证。
+        // 因此：含 '*' 的一律不走兼容分支（正常 Key 是 48 位 hex，不会有 '*'）。
+        if (!$row && $key !== '' && !str_contains($key, '*')) {
+            $legacy = $db->fetch(
+                "SELECT * FROM `{$table}` WHERE api_key = ? AND api_key NOT LIKE '%*%' LIMIT 1",
+                [$key]
+            );
             if ($legacy) {
                 try {
                     $db->update(

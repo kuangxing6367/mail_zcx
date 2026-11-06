@@ -54,6 +54,10 @@ class ApiKeyService
         if ($custom !== '' && strlen($custom) < 32) {
             throw new RuntimeException('自定义 API Key 至少 32 个字符');
         }
+        // '*' 是脱敏展示串的占位符，鉴权侧一律拒绝含 '*' 的值，避免「展示串 == 凭证」
+        if ($custom !== '' && str_contains($custom, '*')) {
+            throw new RuntimeException('自定义 API Key 不能包含 * 字符');
+        }
         $apiKey = $custom !== '' ? $custom : Crypto::randomKey('zc_');
         $secret = bin2hex(random_bytes(16));
         $scopes = $this->normalizeScopes($data['scopes'] ?? '*');

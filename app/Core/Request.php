@@ -15,11 +15,13 @@ class Request
     public array $headers = [];
     public string $rawBody = '';
     public array $files = [];
+    /** 请求体超过 security.max_body_bytes 时为 true，由入口统一返回 413 */
+    public bool $tooLarge = false;
 
     public function __construct()
     {
         $this->method  = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-        $this->rawBody = (string) file_get_contents('php://input');
+        $this->rawBody = $this->readBody();
         $this->headers = $this->parseHeaders();
         $this->query   = $_GET ?? [];
         $this->body    = $this->parseBody();
@@ -175,6 +177,38 @@ class Request
     public function userAgent(): string
     {
         return substr((string) ($this->headers['user-agent'] ?? ''), 0, 255);
+    }
+
+    /**
+     * 读取请求体，带上限。
+     *
+     * php://input 不受 post_max_size 约束（那条限制只管 $_POST 解析），
+     * 一个超大 JSON 足以把 FPM 进程内存打满，所以这里必须显式截断。
+     * 上限默认 16MB：要容纳 10MB 附件经 base64 膨胀后的 ~13.4MB。
+     */
+    private function readBody(): string
+    {
+        $max = max(65536, (int) Config::get('security.max_body_bytes', 16777216));
+
+        // Content-Length 先挡一道，避免把整个流读进内存再判断
+        $declared = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($declared > $max) {
+            $this->tooLarge = true;
+            return '';
+        }
+
+        $fp = @fopen('php://input', 'rb');
+        if (!$fp) {
+            return '';
+        }
+        $raw = (string) stream_get_contents($fp, $max + 1);
+        fclose($fp);
+
+        if (strlen($raw) > $max) {
+            $this->tooLarge = true;
+            return '';
+        }
+        return $raw;
     }
 
     private function parseBody(): array

@@ -103,6 +103,12 @@ class Mailer
         $payloadForLog = $input;
         unset($payloadForLog['api_key'], $payloadForLog['callback_secret'], $payloadForLog['_method']);
 
+        // 请求体来自 JSON，正常情况下都是合法 UTF-8；插件改写后可能不是。
+        // 序列化失败时宁可不存 payload，也不要把 false 塞进 mb_substr。
+        $logJson = Config::get('mail.log_payload', true)
+            ? json_encode($payloadForLog, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)
+            : false;
+
         $logId = $this->logs->create([
             'request_id'    => $requestId,
             'mailbox_id'    => (int) $mailbox['id'],
@@ -115,9 +121,7 @@ class Mailer
             'status'        => 'pending',
             'source_ip'     => (string) ($context['source_ip'] ?? ''),
             'user_agent'    => mb_substr((string) ($context['user_agent'] ?? ''), 0, 255),
-            'payload'       => Config::get('mail.log_payload', true)
-                ? mb_substr(json_encode($payloadForLog, JSON_UNESCAPED_UNICODE), 0, 65535)
-                : null,
+            'payload'       => $logJson === false ? null : mb_substr($logJson, 0, 65535),
         ]);
 
         $payload = [
@@ -215,7 +219,7 @@ class Mailer
             'source_ip'     => (string) ($context['source_ip'] ?? ''),
             'user_agent'    => mb_substr((string) ($context['user_agent'] ?? 'SMTP'), 0, 255),
             'payload'       => Config::get('mail.log_payload', true)
-                ? mb_substr(json_encode($payloadForLog, JSON_UNESCAPED_UNICODE), 0, 65535)
+                ? mb_substr((string) json_encode($payloadForLog, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), 0, 65535)
                 : null,
         ]);
 
@@ -314,6 +318,15 @@ class Mailer
         $smtpMessage = '';
         $error       = '';
 
+        // 队列序列化时若原文含非 UTF-8 字节，会把 message 搬进 message_b64（见 QueueService::enqueue）
+        $message = (string) $payload['message'];
+        if (isset($payload['message_b64']) && is_string($payload['message_b64']) && $payload['message_b64'] !== '') {
+            $decoded = base64_decode($payload['message_b64'], true);
+            if ($decoded !== false) {
+                $message = $decoded;
+            }
+        }
+
         try {
             $client = new SmtpClient(
                 $cred['host'],
@@ -324,7 +337,7 @@ class Mailer
             );
             $client->connect();
             $client->authenticate($cred['user'], $cred['pass']);
-            $client->send((string) $payload['from_email'], (array) $payload['recipients'], (string) $payload['message']);
+            $client->send((string) $payload['from_email'], (array) $payload['recipients'], $message);
             $smtpCode    = (string) $client->lastCode;
             $smtpMessage = (string) $client->lastResponse;
             $client->quit();
@@ -458,7 +471,12 @@ class Mailer
                 throw new \RuntimeException('作业载荷畸形: ' . $key . ' 必须是字符串');
             }
         }
-        if ($payload['message'] === '' || str_contains($payload['message'], "\0")) {
+        $inlineMessage = is_string($payload['message']) && $payload['message'] !== '';
+        $b64Message    = isset($payload['message_b64']) && is_string($payload['message_b64']) && $payload['message_b64'] !== '';
+        if (!$inlineMessage && !$b64Message) {
+            throw new \RuntimeException('作业载荷畸形: message 为空或含 NUL 字节');
+        }
+        if ($inlineMessage && str_contains($payload['message'], "\0")) {
             throw new \RuntimeException('作业载荷畸形: message 为空或含 NUL 字节');
         }
         if (!is_array($payload['recipients']) || $payload['recipients'] === []) {
@@ -544,7 +562,8 @@ class Mailer
 
         // ---------- 4. 组装 MIME ----------
         $mime = new MimeBuilder();
-        $mime->setFrom($fromEmail, $fromName)
+        $mime->setCharset((string) Config::get('mail.charset', 'UTF-8'))
+             ->setFrom($fromEmail, $fromName)
              ->setSubject($subject)
              ->setHtml($html)
              ->setText($text);

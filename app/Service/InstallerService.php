@@ -96,6 +96,25 @@ class InstallerService
                 . '（请先在主机面板创建该库，并把库名/账号写进 config/config.local.php）');
         }
 
+        // 增量迁移（老库升级，幂等）
+        //
+        // ⚠ 顺序很重要：sql/schema.sql 里的种子 INSERT 已经带上 api_key_hash 列。
+        // 旧库（v1.0 之前）没有这一列，若先把 schema 整个跑一遍，
+        // INSERT 会以 "Unknown column 'api_key_hash'" 失败，升级直接断在这里。
+        // 所以：表已存在时先补列，再导 schema（CREATE TABLE IF NOT EXISTS 本身幂等）。
+        $migrations = [
+            'api_key_hash' => "ALTER TABLE `{$this->prefix}api_keys` ADD COLUMN `api_key_hash` CHAR(64) DEFAULT NULL COMMENT 'sha256(api_key)' AFTER `api_key`, ADD UNIQUE KEY `uk_hash` (`api_key_hash`)",
+            'scopes'       => "ALTER TABLE `{$this->prefix}api_keys` ADD COLUMN `scopes` VARCHAR(255) NOT NULL DEFAULT '*' COMMENT '逗号分隔权限，*=全部' AFTER `api_key_hash`",
+        ];
+        $apiKeysExists = (int) $pdo->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$this->prefix}api_keys'"
+        )->fetchColumn();
+
+        if ($apiKeysExists) {
+            $this->migrate($pdo, $migrations, $notes);
+        }
+
         // 导入 schema（逐条执行，不依赖 MULTI_STATEMENTS）
         $schemaFile = Config::basePath('sql/schema.sql');
         if (!is_file($schemaFile)) {
@@ -115,21 +134,8 @@ class InstallerService
             }
         }
 
-        // 增量迁移（老库升级，幂等）
-        $migrations = [
-            'api_key_hash' => "ALTER TABLE `{$this->prefix}api_keys` ADD COLUMN `api_key_hash` CHAR(64) DEFAULT NULL COMMENT 'sha256(api_key)' AFTER `api_key`, ADD UNIQUE KEY `uk_hash` (`api_key_hash`)",
-            'scopes'       => "ALTER TABLE `{$this->prefix}api_keys` ADD COLUMN `scopes` VARCHAR(255) NOT NULL DEFAULT '*' COMMENT '逗号分隔权限，*=全部' AFTER `api_key_hash`",
-        ];
-        foreach ($migrations as $col => $ddl) {
-            $exists = (int) $pdo->query(
-                "SELECT COUNT(*) FROM information_schema.COLUMNS
-                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$this->prefix}api_keys' AND COLUMN_NAME = '{$col}'"
-            )->fetchColumn();
-            if (!$exists) {
-                $pdo->exec($ddl);
-                $notes[] = "迁移：新增列 {$col}";
-            }
-        }
+        // 新库直接由 schema 建出带列的表，这里再跑一次做兜底（已存在则跳过）
+        $this->migrate($pdo, $migrations, $notes);
 
         // 老库明文 Key 回填摘要
         $backfilled = $pdo->exec(
@@ -151,9 +157,14 @@ class InstallerService
         $seed = $pdo->query("SELECT api_key FROM `{$this->prefix}api_keys` ORDER BY id ASC LIMIT 1")->fetchColumn();
         $seedKey = (is_string($seed) && $seed !== '' && !str_contains($seed, '*')) ? $seed : null;
 
-        $secret = (string) Config::get('security.app_secret');
-        if ($secret === 'change-me-to-a-random-64-char-string' || strlen($secret) < 32) {
-            $warnings[] = 'security.app_secret 仍是默认值或长度不足 32，请改为 64 位随机串';
+        // 根密钥：留空或出厂值时，Crypto 会在 storage/app_secret.local 自动生成
+        // 一台机器一份的随机密钥。只有 storage 不可写时才真的有问题。
+        $secret  = (string) Config::get('security.app_secret');
+        $keyDir  = Config::basePath('storage');
+        $keyFile = $keyDir . '/app_secret.local';
+        $autoKey = $secret === '' || $secret === 'change-me-to-a-random-64-char-string' || strlen($secret) < 32;
+        if ($autoKey && (!is_dir($keyDir) || !is_writable($keyDir)) && !is_file($keyFile)) {
+            $warnings[] = 'storage 目录不可写，无法生成本机加密密钥，SMTP 密码将退回出厂密钥保护（不安全）';
         }
 
         return [
@@ -164,6 +175,25 @@ class InstallerService
             'notes'      => $notes,
             'warnings'   => $warnings,
         ];
+    }
+
+    /**
+     * 按需补列：逐列查 information_schema，缺哪列补哪列。
+     * 表不存在时 information_schema.COLUMNS 自然查不到，不会误 ALTER。
+     */
+    private function migrate(PDO $pdo, array $migrations, array &$notes): void
+    {
+        foreach ($migrations as $col => $ddl) {
+            $exists = (int) $pdo->query(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$this->prefix}api_keys'
+                   AND COLUMN_NAME = '{$col}'"
+            )->fetchColumn();
+            if (!$exists) {
+                $pdo->exec($ddl);
+                $notes[] = "迁移：新增列 {$col}";
+            }
+        }
     }
 
     /** @return string[] */
