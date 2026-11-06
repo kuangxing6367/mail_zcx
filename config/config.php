@@ -50,7 +50,7 @@ return [
         // 请求体上限（字节）。php://input 不受 post_max_size 约束，超限直接 413。
         // 默认 16MB：要装得下 10MB 附件经 base64 膨胀后的 ~13.4MB。
         'max_body_bytes'  => 16777216,
-        // 时间戳容差（秒），保留字段，当前鉴权链路未使用
+        // 入站 Webhook 的时间戳容差（秒）：body 里的 timestamp 与服务器时间相差超过此值即拒绝（防重放）
         'timestamp_window'=> 300,
         // 入站 Webhook（/api/v1/hook/inbound）签名密钥；留空 = 该接口禁用（返回 403）
         'inbound_secret'  => '',

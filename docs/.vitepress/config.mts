@@ -34,6 +34,7 @@ export default defineConfig({
       { text: 'SMTP 入站', link: '/smtp-in' },
       { text: 'API', link: '/api' },
       { text: '插件', link: '/plugins' },
+      { text: '协议', link: '/contract' },
       { text: '设计', link: '/architecture' },
       { text: 'GitHub', link: 'https://github.com/kuangxing6367/mail_zcx' },
     ],
@@ -58,6 +59,7 @@ export default defineConfig({
         text: '参考',
         items: [
           { text: 'API 手册', link: '/api' },
+          { text: '协议与约定', link: '/contract' },
           { text: '设计说明', link: '/architecture' },
         ],
       },
