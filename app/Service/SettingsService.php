@@ -48,6 +48,7 @@ class SettingsService
                 'least_sent'  => '累计发件最少（默认，均衡）',
                 'round_robin' => '轮询',
                 'random'      => '随机',
+                'weight'      => '按权重（sent_total / weight 最小优先）',
             ],
         ],
         'mail.smtp_verify_tls' => [

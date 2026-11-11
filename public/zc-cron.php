@@ -43,6 +43,7 @@ function cron_json(?array $data, int $code = 0, string $msg = 'ok', int $httpCod
         http_response_code($httpCode);
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
     }
     echo json_encode(['code' => $code, 'msg' => $msg, 'data' => $data], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;

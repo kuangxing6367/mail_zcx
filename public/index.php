@@ -97,9 +97,13 @@ if ($corsOrigins === '*') {
         header('Vary: Origin');
     }
 }
-header('Access-Control-Allow-Headers: Content-Type, X-API-Key, X-ZC-Key, Authorization, X-ZC-Signature, X-Request-Id');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Max-Age: 86400');
+// 默认不发任何 CORS 头：Allow-Headers / Allow-Methods / Max-Age 也一并不发，
+// 否则「cors_origins 默认空 = 不发 CORS 头」的承诺在响应里对不上。
+if ($corsOrigins !== '') {
+    header('Access-Control-Allow-Headers: Content-Type, X-API-Key, X-ZC-Key, Authorization, X-ZC-Signature, X-Request-Id');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Max-Age: 86400');
+}
 // API 响应里全是发信内容/日志/密钥信息，任何中间缓存都不该留存
 header('Cache-Control: no-store, no-cache, must-revalidate, private');
 header('Pragma: no-cache');

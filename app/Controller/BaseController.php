@@ -29,7 +29,8 @@ abstract class BaseController
         try {
             $fn();
         } catch (InvalidArgumentException | RuntimeException $e) {
-            Response::error($e->getMessage(), 1, 400);
+            // 业务码与 HTTP 码一致（见 API.md 的 code 表）：参数错误 = 400
+            Response::error($e->getMessage(), 400, 400);
         }
     }
 }

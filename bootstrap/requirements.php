@@ -282,3 +282,17 @@ if (!function_exists('zc_php_guard')) {
         exit(1);
     }
 }
+
+// ---------------------------------------------------------------------------
+// 统一时区：本文件被所有入口 require，CLI 也必须和 Web 用同一个时钟。
+// 队列把 PHP 的 date() 与 MySQL 的 NOW()/CURDATE() 写进同一张表，两边时区不一致时，
+// next_attempt_at 的认领判定、日限额跨天、finished_at 的耗时统计都会错位。
+// 这里读的是同一组三层配置（含 config.overrides.php），与 Config::load() 顺序一致。
+$zcTimezoneCfg = zc_php_config();
+$zcTimezone    = isset($zcTimezoneCfg['app']['timezone'])
+    ? (string) $zcTimezoneCfg['app']['timezone']
+    : 'Asia/Shanghai';
+if ($zcTimezone !== '' && in_array($zcTimezone, timezone_identifiers_list(), true)) {
+    date_default_timezone_set($zcTimezone);
+}
+unset($zcTimezoneCfg, $zcTimezone);

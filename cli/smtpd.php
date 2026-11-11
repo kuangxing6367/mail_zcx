@@ -456,8 +456,21 @@ final class SmtpSession
                 }
             }
         } catch (\Throwable $e) {
+            // prepareRaw() 已先落库一条 pending 日志；入队失败要收口成 failed，
+            // 否则与 /send 路径不一致，日志永远停在 pending。
+            if (isset($payload['log_id'])) {
+                try {
+                    (new \App\Service\LogService())->update((int) $payload['log_id'], [
+                        'status' => 'failed',
+                        'error'  => '入队失败: ' . $e->getMessage(),
+                    ]);
+                } catch (\Throwable $ignored) {
+                    // 收口本身失败也不能掩盖原始异常
+                }
+            }
             Logger::error('SMTP 入站处理失败: ' . $e->getMessage(), ['ip' => $this->peerIp]);
-            $this->reply('451', '4.3.0 Temporary failure: ' . mb_substr($e->getMessage(), 0, 150));
+            // 内部异常原文（可能含路径/凭据）不回给未认证会话
+            $this->reply('451', '4.3.0 Temporary failure');
         }
 
         $this->resetEnvelope();
@@ -655,6 +668,9 @@ while (true) {
 
     $peerName = (string) @stream_socket_get_name($conn, true);
     $peerIp   = str_contains($peerName, ':') ? substr($peerName, 0, (int) strrpos($peerName, ':')) : $peerName;
+    // IPv6 对端形如 "[::1]:54321"，截完还带方括号；不剥掉会让 trusted_proxies
+    // 里的 '::1' 永远匹配不上，PROXY 头被丢弃，allow_ips 也判不对。
+    $peerIp = trim($peerIp, '[]');
 
     // 并发上限：满了直接 421，让客户端稍后重试（比直接丢弃礼貌，客户端会退避）
     if ($active >= $maxConn) {

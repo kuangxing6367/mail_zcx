@@ -13,8 +13,7 @@ use RuntimeException;
 
 /**
  * 发信接口
- *   POST /api/v1/send
- *   GET  /api/v1/send
+ *   POST /api/v1/send（写操作只允许 POST，见 routes.php）
  *
  * 执行模式由 mail.queue.enabled 决定：
  *   true  → prepare 落库后立即返回 202（queued），worker 后台投递

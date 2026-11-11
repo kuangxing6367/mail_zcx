@@ -34,7 +34,8 @@ echo "==> 扩展检查通过 (pdo_mysql openssl mbstring curl)"
 if [ ! -f config/config.local.php ]; then
   cp config/config.local.example.php config/config.local.php
   echo "==> 已生成 config/config.local.php"
-  echo "    请先编辑它，填入数据库凭据与 app_secret（openssl rand -hex 32），然后重跑本脚本。"
+  echo "    请先编辑它，填入数据库凭据；根密钥可设环境变量 ZC_APP_SECRET（openssl rand -hex 32），"
+  echo "    不设则首次运行自动生成到 storage/app_secret.local。填完重跑本脚本。"
   exit 0
 fi
 echo "==> 检测到 config/config.local.php，跳过生成"

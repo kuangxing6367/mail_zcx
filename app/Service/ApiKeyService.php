@@ -152,7 +152,9 @@ class ApiKeyService
         if (!$list || in_array('*', $list, true)) {
             return '*';
         }
-        $allowed = ['send', 'logs', 'mailboxes', 'templates', 'webhooks', 'keys'];
+        // 与 routes.php 的路由声明、sql/schema.sql 的列注释、API.md 的 scope 表保持一致。
+        // 漏掉 settings / plugins 时，走 API 无法创建最小权限 Key，只能给 *。
+        $allowed = ['send', 'logs', 'mailboxes', 'templates', 'webhooks', 'keys', 'settings', 'plugins'];
         foreach ($list as $s) {
             if (!in_array($s, $allowed, true)) {
                 throw new RuntimeException('未知的 scope: ' . $s . '（可选：' . implode(', ', $allowed) . ' 或 *）');

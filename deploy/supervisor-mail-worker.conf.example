@@ -6,8 +6,8 @@
 ;   3. supervisorctl reread && supervisorctl update && supervisorctl start zc-mail-worker
 ; =============================================================
 [program:zc-mail-worker]
-command=php /www/wwwroot/mail.zgric.top/cli/worker.php
-directory=/www/wwwroot/mail.zgric.top
+command=php /www/wwwroot/mail.example.com/cli/worker.php
+directory=/www/wwwroot/mail.example.com
 autostart=true
 autorestart=true
 startsecs=3
@@ -16,5 +16,5 @@ stopwaitsecs=30
 user=www
 numprocs=1
 process_name=%(program_name)s_%(process_num)02d
-stderr_logfile=/www/wwwroot/mail.zgric.top/storage/logs/worker.err.log
-stdout_logfile=/www/wwwroot/mail.zgric.top/storage/logs/worker.out.log
+stderr_logfile=/www/wwwroot/mail.example.com/storage/logs/worker.err.log
+stdout_logfile=/www/wwwroot/mail.example.com/storage/logs/worker.out.log

@@ -13,7 +13,7 @@
 ; =============================================================================
 
 [program:zc-mail-smtpd]
-command=/www/server/php/82/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php
+command=/www/server/php/83/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php
 directory=/www/wwwroot/mail.example.com
 user=www
 autostart=true
@@ -28,10 +28,10 @@ redirect_stderr=true
 stdout_logfile=/www/wwwroot/mail.example.com/storage/logs/smtpd.log
 stdout_logfile_maxbytes=20MB
 stdout_logfile_backups=5
-environment=PHP_INI_SCAN_DIR="/www/server/php/82/etc/php.d"
+environment=PHP_INI_SCAN_DIR="/www/server/php/83/etc/php.d"
 
 ; 只开一个进程就够：收信只做「落库 + 入队」，单封耗时 < 50ms。
 ; 并发确实吃紧时再起第二个（换端口）并让 nginx upstream 轮询：
 ; [program:zc-mail-smtpd-2]
-; command=/www/server/php/82/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php --port=2526
+; command=/www/server/php/83/bin/php /www/wwwroot/mail.example.com/cli/smtpd.php --port=2526
 ; ...（其余同上）

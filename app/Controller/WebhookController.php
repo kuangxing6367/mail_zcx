@@ -80,7 +80,7 @@ class WebhookController extends BaseController
         $this->handle(function () use ($req) {
             $url = $req->string('url');
             if ($url === '') {
-                Response::error('缺少参数 url', 1, 400);
+                Response::error('缺少参数 url', 400, 400);
                 return;
             }
             // 提前校验，给出明确错误（httpPost 内还会再拦一次）
@@ -105,7 +105,7 @@ class WebhookController extends BaseController
     {
         $secret = (string) Config::get('security.inbound_secret', '');
         if ($secret === '') {
-            Response::error('入站 Webhook 未启用：请先配置 security.inbound_secret', 4030, 403);
+            Response::error('入站 Webhook 未启用：请先配置 security.inbound_secret', 403, 403);
             return;
         }
         $this->handle(function () use ($req, $secret) {

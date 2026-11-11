@@ -7,7 +7,9 @@
 // 根密钥：只从环境变量读取，不再从 /tmp 等共享目录读文件
 // （同机其他用户可预置 /tmp 文件 → 直接控制加密密钥）
 // 生成：openssl rand -hex 32
-$secret = (string) (getenv('ZC_APP_SECRET') ?: '__APP_SECRET__');
+// 未设置时留空，由 Crypto 在 storage/app_secret.local 自动生成一台机器一份的密钥。
+// 不要填占位串：非空值会被当成真实密钥加入解密候选列表。
+$secret = (string) getenv('ZC_APP_SECRET');
 
 return [
     'app' => [

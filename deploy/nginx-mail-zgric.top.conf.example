@@ -1,30 +1,30 @@
 # =============================================================
 # ZC Mail Service — 生产环境 nginx 虚拟主机（示例）
-# 适用：自托管服务器（如 82.158.224.71，宝塔 / 纯 nginx 均可）
-# 用法：改好域名/路径/php版本后，放到站点 conf 或宝塔「配置文件」里
+# 适用：自托管服务器（宝塔 / 纯 nginx 均可）
+# 用法：把下面的 mail.example.com、/www/wwwroot/... 全部换成你自己的域名与路径
 # =============================================================
 
 server {
     # ---- 监听与域名 ----
     listen 80;
     listen 443 ssl http2;
-    server_name mail.zgric.top;   # ← 改成你的 API 域名
+    server_name mail.example.com;
 
     # ---- 站点根目录：必须指向 public/ ----
     # 这是安全入口的核心：app/、config/、routes.php 都在 public 之上，
     # 外部无法直接访问源码与密钥。
-    root /www/wwwroot/mail_zgric.top/public;
+    root /www/wwwroot/mail.example.com/public;
     index index.php index.html;
 
     # ---- SSL（Let's Encrypt / 宝塔证书路径示例） ----
-    # ssl_certificate     /www/server/panel/vhost/cert/mail.zgric.top/fullchain.pem;
-    # ssl_certificate_key /www/server/panel/vhost/cert/mail.zgric.top/privkey.pem;
+    # ssl_certificate     /www/server/panel/vhost/cert/mail.example.com/fullchain.pem;
+    # ssl_certificate_key /www/server/panel/vhost/cert/mail.example.com/privkey.pem;
     # ssl_protocols TLSv1.2 TLSv1.3;
     # ssl_ciphers HIGH:!aNULL:!MD5;
 
     # ---- 日志 ----
-    access_log /www/wwwlogs/mail.zgric.top.access.log;
-    error_log  /www/wwwlogs/mail.zgric.top.error.log;
+    access_log /www/wwwlogs/mail.example.com.access.log;
+    error_log  /www/wwwlogs/mail.example.com.error.log;
 
     # ---- 安全：隐藏后端目录，禁止直接访问敏感路径 ----
     # app/、config/ 本就在 web 根之外，这里再兜底拦一遍
@@ -41,14 +41,15 @@ server {
 
     # ---- PHP 处理 ----
     location ~ \.php$ {
-        # 宝塔用户：下面两行改成 include enable-php-82.conf; 即可
-        fastcgi_pass   unix:/tmp/php-cgi-82.sock;   # 或 127.0.0.1:9000
+        # 宝塔用户：下面两行改成 include enable-php-83.conf; 即可
+        # 若装的是 8.2 分支，把 83 换成 82，并保持与 supervisor 模板一致
+        fastcgi_pass   unix:/tmp/php-cgi-83.sock;   # 或 127.0.0.1:9000
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include        fastcgi_params;
 
         # 只允许 public 下的 php 被执行（双保险）
-        fastcgi_param  PHP_VALUE "open_basedir=/www/wwwroot/mail_zgric.top/:/tmp/";
+        fastcgi_param  PHP_VALUE "open_basedir=/www/wwwroot/mail.example.com/:/tmp/";
     }
 
     # =========================================================
@@ -58,10 +59,10 @@ server {
     # =========================================================
     # location ^~ /zc-console/ {
     #     auth_basic           "ZC Mail Admin";
-    #     auth_basic_user_file /www/wwwroot/mail.zgric.top/.htpasswd;
+    #     auth_basic_user_file /www/wwwroot/mail.example.com/.htpasswd;
     #     try_files $uri $uri/ /index.php?$query_string;
     # }
-    # 生成密码： htpasswd -c /www/wwwroot/mail.zgric.top/.htpasswd admin
+    # 生成密码： htpasswd -c /www/wwwroot/mail.example.com/.htpasswd admin
 
     # ---- 若启用 config.security.api_entry，可选：仅放行带前缀的 API，
     #      其余 /api 直接 404（与 index.php 内的入口混淆双重保险） ----
@@ -78,7 +79,9 @@ server {
     # error_page 404 /404.html;   # ← 删掉这一行
 
     # ---- 限制请求体大小（发信带正文/附件时） ----
-    client_max_body_size 10m;
+    # 必须 ≥ security.max_body_bytes（默认 16MB）：10MB 附件 base64 后约 13.4MB，
+    # nginx 层设 10m 会在请求到达 PHP 之前就 413，应用层的 413 JSON 与附件上限全部失效。
+    client_max_body_size 16m;
 
     # ---- 关闭目录列表 ----
     autoindex off;

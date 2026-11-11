@@ -24,6 +24,7 @@ use App\Service\InstallerService;
 $root = dirname(__DIR__);
 
 require $root . '/bootstrap/requirements.php';
+zc_php_guard();
 
 spl_autoload_register(static function (string $class) use ($root): void {
     $prefix = 'App\\';
@@ -46,6 +47,7 @@ function render(string $title, string $body, int $status = 200): void
     http_response_code($status);
     header('Content-Type: text/html; charset=utf-8');
     header('X-Robots-Tag: noindex, nofollow');
+    header('X-Content-Type-Options: nosniff');
     echo '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
         . '<title>' . h($title) . '</title><style>'
