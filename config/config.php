@@ -11,7 +11,7 @@
 return [
     'app' => [
         'name'     => 'ZC Mail Service',
-        'version'  => '1.3.0',
+        'version'  => '1.3.1',
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
@@ -183,7 +183,7 @@ return [
         'timeout'     => 5,                   // 出站回调超时（秒）
         'retry'       => 2,                   // 失败重试次数
         'sign_header' => 'X-ZC-Signature',    // 签名头名称
-        'user_agent'  => 'ZC-Mail-Service/1.0',
+        'user_agent'  => 'ZC-Mail-Service/1.3.1',
         'async'       => true,                // true: 响应后投递(fastcgi_finish_request)
         // 非 FPM 环境（php -S / mod_php / CGI）没有 fastcgi_finish_request，
         // shutdown function 会在响应发送前执行，注册它等于同步阻塞。

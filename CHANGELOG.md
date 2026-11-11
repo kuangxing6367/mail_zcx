@@ -2,17 +2,60 @@
 
 ## 未发布
 
+## v1.3.1 — 2026-11-11
+
+修复版本。按 `contract.md` 的版本承诺，改行为之外的 bug 修复 / 默认值 / 文档 = PATCH。
+`/api/v1/**` 路径、入参名、响应字段、事件名均未改动；升级不需要改调用方代码。
+
+### 修复
+
+- **API 创建不了最小权限 Key**：`ApiKeyService::normalizeScopes()` 的 scope 白名单漏了
+  `settings` / `plugins`，传这两个值直接抛「未知的 scope」，只能给 `*`。
+  现与 `routes.php`、`sql/schema.sql`、`API.md` 的八项 scope 对齐。
+- **控制台选不到权重策略**：`SettingsService` 的 `mail.selection` 枚举少 `weight`，
+  而选箱逻辑、数据库字段、README 都已支持。补齐。
+- **IPv6 对端解析残留方括号**：`stream_socket_get_name()` 返回 `[::1]:port`，
+  截取后是 `[::1]`，导致 `smtp_in.trusted_proxies` 里的 `::1` 永不命中，
+  PROXY 头被丢弃、`allow_ips` 判定失效、来源 IP 带括号入库。现剥掉方括号。
+- **SMTP 入站入队失败留下永久 pending 日志**：`/send` 在 v1.3.0 已收口，入站路径漏了。
+  现把已落库的 `pending` 日志改为 `failed`；`451` 响应不再回显内部异常原文。
+- **CLI 与 Web 时区不一致**：`app.timezone` 此前只在 `public/index.php` / `zc-cron.php` 生效，
+  worker、install、smtpd 等入口走 PHP 默认时区，而队列 SQL 用 MySQL `NOW()` / `CURDATE()`。
+  现在 `bootstrap/requirements.php`（所有入口共用）统一设置时区，消除
+  `next_attempt_at` 判定、日限额跨天、耗时统计的错位。
+- **部署模板提前 413**：nginx 示例的 `client_max_body_size 10m` 小于应用
+  `security.max_body_bytes`（16MB），10MB 附件 base64 后约 13.4MB 会在到达 PHP 前被拒。
+  改为 `16m` 并注明联动关系。
+- **业务码不统一**：`BaseController` / `WebhookController` 返回的 `1` / `4030`
+  不在 `API.md` 的 code 表内，统一为 `400` / `403`。
+- **「默认不发 CORS 头」名不副实**：`cors_origins` 为空时仍发
+  `Allow-Headers` / `Allow-Methods` / `Max-Age` 三个头，现一并收进条件分支。
+- `public/zc-install.php` 补 `zc_php_guard()`，与其余入口一致；安装器与 Web Cron 响应补
+  `X-Content-Type-Options: nosniff`。
+- `config.local.example.php` 不再把 `__APP_SECRET__` 占位串当成真实密钥，
+  未设 `ZC_APP_SECRET` 时留空走自动生成；`bootstrap.sh` 提示同步更新。
+
+### 变更
+
+- `app.version` → `1.3.1`（`/health` 回显、插件版本校验用它）；出站 Webhook UA 由
+  `ZC-Mail-Service/1.0` 改为带实际版本。
+- 部署示例统一使用占位域名 `mail.example.com`、PHP 8.3 分支，并移除注释里的真实公网 IP；
+  nginx、supervisor、open_basedir、日志四处路径现在一致。
+- 关闭本仓库 GitHub Pages 托管，文档站迁至 [mail_zcx-docs](https://github.com/kuangxing6367/mail_zcx-docs)
+  独立仓库，README 指明其为唯一事实来源；本仓库 `docs/` 保留为同结构快照。
+- **许可证由 MIT 改为 WTFPL v2**（`LICENSE`）：零义务、无免责条款，名称与标识不随代码授权。
+
 ### 文档
 
 - 新增[协议与约定](docs/contract.md)：许可、版本兼容承诺、HTTP 接口契约、Webhook 出站与入站协议、
   插件编写约束、凭据处理与提交规范。文档站侧栏新增「协议」入口。
-- **许可证由 MIT 改为 WTFPL v2**（`LICENSE`）：零义务、无免责条款，名称与标识不随代码授权。
-  README、文档首页、插件页同步更新。
-
-### 修复
-
 - 修正 `config.php` 中 `security.timestamp_window` 的过时注释 —— v1.3.0 起该配置已用于
   入站 Webhook 的防重放校验，不再是保留字段。
+- README 的「发信模型」段落改回与部署模板一致的默认同步（200），去掉「默认入队异步 202」的旧描述。
+- 文档站清理历史遗留冲突：默认发信模式（同步 200 / 异步 202）、`smtp_in.trusted_proxies`
+  与 PROXY 头信任边界、队列回收阈值与 `reserved_by` 终态校验、扩展点与「没有事件总线」、
+  唯一事实来源指向、插件文档两处坏锚点、PHP 分支与部署参数口径。
+- 文档站首页、README 与站点文案改为克制直陈的表述；本仓库 `docs/` 快照同步。
 
 ## v1.3.0 — 2026-11-07
 
