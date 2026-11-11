@@ -1,7 +1,9 @@
 # ZC Mail Service · API 文档
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 - **Base URL**：`https://mail.example.com/api/v1`（替换为你自己的部署域名）
-- **鉴权**：请求头 `X-API-Key: <key>`（也支持 `X-ZC-Key`、`Authorization: Bearer`；出于安全考虑不再接受 `?api_key=`）
+- **鉴权**：请求头 `X-API-Key: <key>`（也支持 `X-ZC-Key`、`Authorization: Bearer`）。URL 传参一直不支持，代码只从请求头读 Key
 - **入参**：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data` 均可
 - **方法覆盖**：表单或 JSON 中传 `_method=PUT` 可让 POST 走 PUT 路由
 - **统一响应**：
@@ -60,13 +62,14 @@
 
 | 模式 | HTTP | `data.status` | 含义 |
 |---|---|---|---|
-| **异步队列**（默认） | **202** | `queued` | 已落库入队，SMTP 投递由后台 worker 执行 |
-| 同步（队列关闭） | 200 | `success` / `failed` | 请求内完成投递，直接返回最终结果 |
+| 异步队列（`enabled = true`） | **202** | `queued` | 已落库入队，SMTP 投递由后台 worker 执行 |
+| **同步（部署模板默认）** | **200** | `success` / `failed` | 请求内完成投递，直接返回最终结果 |
 
+> 部署模板里 `mail.queue.enabled = false`，默认拿到的是同步响应（200）。只有显式打开队列才走 202。
 > 异步模式下 `msg` 会给出 `log_id` 与查询地址。投递失败仍会写入 `mail_logs`，
 > 不会因为入队成功而丢失；也可通过 `callback_url` 或全局 Webhook 接收终态。
 
-**异步响应（HTTP 202，默认模式）**
+**异步响应（HTTP 202，开启队列时）**
 
 ```json
 {
@@ -384,7 +387,7 @@ Content-Type: application/json
       ]}
     ],
     "readonly": { "db.*": "数据库凭据改错会直接连不上…" },
-    "file": "/www/wwwroot/mail.zcx/config/config.overrides.php",
+    "file": "/www/wwwroot/mail.example.com/config/config.overrides.php",
     "exists": false,
     "writable": true,
     "writable_note": ""
@@ -428,7 +431,7 @@ Content-Type: application/json
   "plugins": [{
     "slug": "hello", "name": "示例插件", "version": "1.0.0",
     "enabled": true, "loaded": true, "error": "",
-    "events": [], "path": "/www/wwwroot/mail/plugins/hello"
+    "events": [], "path": "/www/wwwroot/mail.example.com/plugins/hello"
   }],
   "info": { "dir": ".../plugins", "writable": true, "enabled": true, "loaded": ["hello"] }
 }
@@ -443,7 +446,7 @@ Content-Type: application/json
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.0", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.1", "time": "2026-10-13T20:49:26+08:00" } }
 ```
 
 默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。

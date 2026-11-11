@@ -1,5 +1,7 @@
 # 宝塔面板部署
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 全程图形化操作，不需要手写 nginx 配置。约 10 分钟。
 
 > 本文的「站点根目录」与「运行目录」是两回事，搞混是最常见的 404 原因，见第 3 步。
@@ -15,7 +17,7 @@
 | MySQL | ≥ 5.7 |
 | phpMyAdmin | 用于导入 SQL |
 
-在「软件商店 → 已安装 → PHP 8.2 → 设置 → 安装扩展」勾选并重启 PHP：
+在「软件商店 → 已安装 → PHP 8.3 → 设置 → 安装扩展」勾选并重启 PHP（装的是 8.2 分支就把下文所有 83 换成 82）：
 
 ```
 pdo_mysql   openssl   mbstring   curl   json
@@ -99,7 +101,7 @@ Web 侧实际版本可把 `app.health_detail` 设为 `true` 后从 `/health` 查
 | 域名 | 你的 API 域名，如 `api.zgric.top`（没有域名可先填服务器公网 IP） |
 | 根目录 | 保持默认 `/www/wwwroot/你的域名`，**不要改** |
 | 数据库 | 勾「创建数据库」→ MySQL，记下**库名 / 用户名 / 密码** |
-| PHP 版本 | 选刚装好的 PHP 8.2 |
+| PHP 版本 | 选刚装好的 PHP 8.3 |
 
 提交后，宝塔会自动创建目录、数据库和用户。
 
@@ -179,8 +181,8 @@ index index.php index.html;
 「数据库 → 你的库 → 管理(phpMyAdmin) → 导入」→ 选择 `sql/schema.sql` → 执行。
 导入后应看到 8 张表。
 
-**B. 终端一键脚本（推荐）**
-见下面「一键初始化脚本」，会自动建表并输出默认 API Key。
+**B. 终端初始化脚本**
+见下面「初始化脚本」，会自动建表并输出默认 API Key。
 
 ## 7. 写入配置
 
@@ -194,7 +196,7 @@ index index.php index.html;
 return [
     'app' => ['debug' => false, 'timezone' => 'Asia/Shanghai', 'base_path' => ''],
     'db' => [
-        'host'     => '127.0.0.1',   // 用 127.0.0.1，别用 localhost
+        'host'     => '127.0.0.1',   // 本机/VPS 走 TCP 用 127.0.0.1；面板给 localhost（socket）时按面板填
         'port'     => 3306,
         'database' => '宝塔生成的库名',
         'username' => '宝塔生成的用户名',
@@ -231,7 +233,7 @@ cd /www/wwwroot/你的域名
 chown -R www:www .
 find . -type d -exec chmod 755 {} \;
 find . -type f -exec chmod 644 {} \;
-chmod -R 775 storage
+chmod -R 775 storage   # 有 SSH 的服务器：PHP 用户与文件同组；别无脑 777
 ```
 
 `storage/logs`、`storage/certs` 必须可写，否则日志写不进去会报错。
@@ -279,7 +281,7 @@ curl https://你的域名/health
 
 **开了队列就必须做下面任意一步，否则邮件一直停在 `pending`。**
 
-### 方式 A：宝塔计划任务（最简单，1 分钟兜底）
+### 方式 A：宝塔计划任务（1 分钟兜底）
 
 宝塔 → 计划任务 → 添加任务：
 
@@ -326,7 +328,7 @@ curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
 
 ---
 
-## 一键初始化脚本
+## 初始化脚本
 
 不想在 phpMyAdmin 里点导入，用宝塔「终端」在项目根目录跑一次：
 
@@ -363,7 +365,7 @@ bash /path/to/deploy/bootstrap.sh /www/wwwroot/你的域名
 | 白屏 / `Connection refused` | DB 连不上 | 核对凭据；用 `127.0.0.1` |
 | `PDO Driver not found` | 缺扩展 | 软件商店 → PHP → 安装扩展 → 重启 |
 | 502 / 504 | php-fpm 没起来 | 软件商店重启 PHP；看 `/www/wwwlogs/` 日志 |
-| 改了 PHP 代码没生效 | opcache | `/etc/init.d/php-fpm-82 reload` |
+| 改了 PHP 代码没生效 | opcache | `/etc/init.d/php-fpm-83 reload` |
 | 控制台登录失败 | Key 不对 / 未建表 / 跨域 | 先看 `/health`，再看浏览器控制台报错 |
 | 发信返回 202 但日志一直 `pending` | worker 没启动 / 已退出 | 回第 11 步；`php cli/worker.php --once --verbose` 看报错 |
 | `zc_send_jobs` 不存在 | 用旧版 `schema.sql` 建的表 | 重新执行 `php cli/install.php` 补建新表 |

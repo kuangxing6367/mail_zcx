@@ -1,5 +1,7 @@
 # 设计说明
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 本文记录 ZC Mail Service 的关键设计取舍，供二次开发与代码审查参考。
 
 ## 总体结构
@@ -12,8 +14,7 @@
          └── Controller/ 接口层：参数校验与响应组装
 ```
 
-没有容器、没有事件总线、没有 ORM。所有依赖通过构造函数或静态入口显式获取，读代码即可掌握全貌。
-这样做的代价是扩展性有限，收益是可审计 —— 对一个处理邮箱凭据的服务来说，后者更重要。
+没有容器、没有 ORM。所有依赖通过构造函数或静态入口显式获取。业务扩展不是通用事件总线，而是 `Hooks` 里 4 个固定事件（见[插件](/plugins)与[协议](/contract)），事件名与载荷类型是公共 API，不开放动态注册任意事件。代价是扩展性有限，收益是可审计 —— 对处理邮箱凭据的服务来说，后者更重要。
 
 ### 配置分三层
 
@@ -103,10 +104,10 @@ X-ZC-Signature: sha256=<hex(hmac_sha256(raw_body, secret))>
 
 `Auth::authenticate()` 依次检查：
 
-1. 只从请求头提取 Key：`X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`（不再接受 `?api_key=`，避免进访问日志与 Referer）；
-2. 按 `sha256(key)` 查 `api_key_hash` 比对 —— 库中不存明文，老库里的明文在首次成功鉴权时自动迁移并替换为脱敏串；
+1. 只从请求头提取 Key：`X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`（URL 传参一直不支持，避免进访问日志与 Referer）；
+2. 按 `sha256(key)` 查 `api_key_hash` 比对 —— 库中不存明文；含 `*` 的脱敏展示串一律不走兼容分支（SQL 侧也排除），老库里的明文在首次成功鉴权时自动迁移并替换为脱敏串；
 3. 校验 `status`、`expires_at`、Key 级 `allow_ips`（支持 `192.168.1.*` 与 `10.0.0.0/8`）以及全局 `security.allow_ips`；
-4. 按 Key 的 `scopes` 做**路由级授权**：`send` / `logs` / `mailboxes` / `templates` / `webhooks` / `keys`，`*` 表示全部。旧 Key 默认 `*`；
+4. 按 Key 的 `scopes` 做**路由级授权**：`send` / `logs` / `mailboxes` / `templates` / `webhooks` / `keys` / `settings` / `plugins`，`*` 表示全部。旧 Key 默认 `*`；
 5. 按 `rate_limit` 做分钟级计数（文件 + `flock` 原子递增，旧文件自动清理）；
 6. 同一 IP 在 `auth_fail_window` 内失败达到 `auth_fail_limit` 次后临时锁定。
 
@@ -164,8 +165,14 @@ claim(send_jobs, FOR UPDATE) → connect/EHLO/STARTTLS/AUTH → MAIL/RCPT/DATA �
 `send_jobs` 的并发安全靠 InnoDB 行锁：worker 在事务内 `SELECT ... FOR UPDATE` 取一批
 `pending` 且到期的任务，再批量置为 `processing`。多个 worker 不会重复认领同一任务。
 
-`processing` 超过 `mail.queue.stuck_timeout`（默认 300s）视为 worker 崩溃，
-`reclaim()` 会把它放回 `pending`，避免任务永久卡死。
+`processing` 的回收阈值不是配置里的裸值。worker 启动时会算
+`max(batch × (total_timeout + 5) + 60, mail.queue.stuck_timeout)`：
+按默认 `batch=10` / `total_timeout=30s`，下限是 410s，大于配置值 300s 时取 410s。
+一批任务还没跑完，就不会被另一个实例误判为崩溃并回收 —— v1.3.0 之前两者正好打平，会重复发信。
+
+`reclaim()` 把任务放回 `pending`。另外 `markDone` / `markFailed` / `markRetry`
+三个终态写入都带 `status='processing' AND reserved_by=当前 worker` 条件，
+原 worker 事后回来也覆盖不了新持有者的状态。配置里的 `stuck_timeout` 现在是下限，不是唯一阈值。
 
 ### 重试与投递语义
 
@@ -181,7 +188,7 @@ claim(send_jobs, FOR UPDATE) → connect/EHLO/STARTTLS/AUTH → MAIL/RCPT/DATA �
 |---|---|---|
 | `mail.timeout` | 15s | **单步**连接 / 读写超时 |
 | `mail.total_timeout` | 30s | **整条会话**总时限，`0` = 不限 |
-| `mail.queue.stuck_timeout` | 300s | 认领后超时回收阈值，应大于 `total_timeout × max_attempts` |
+| `mail.queue.stuck_timeout` | 300s（下限） | 实际取 `max(batch × (total_timeout+5) + 60, 配置值)`，默认约 410s |
 
 `total_timeout` 在每次读取前按剩余时间重设 `stream_set_timeout`，避免 `15s × N` 挂到分钟级。
 本地实测：单步 15s、总闸 2s、对端不响应 → 2.02s 抛出。

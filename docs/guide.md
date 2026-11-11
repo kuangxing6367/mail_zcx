@@ -1,5 +1,7 @@
 # 快速开始
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 ## 先回答最容易懵的问题：部署完打开哪个地址？
 
 这个项目**没有传统首页**。浏览器打开域名根 `/`，看到的是一段 JSON，不会跳转到任何网页。
@@ -47,7 +49,7 @@
 
 | 方式 | 适合 | 说明 |
 |---|---|---|
-| **宝塔面板** | 有面板的服务器、不想手写 nginx | [宝塔图形化部署](/deploy-baota)，全程点击 + 一键脚本 |
+| **宝塔面板** | 有面板的服务器、不想手写 nginx | [宝塔图形化部署](/deploy-baota)，面板操作 + 初始化脚本 |
 | **虚拟主机（无 SSH）** | 梦奈主机 / MNBT 这类只有 PHP + MySQL 的环境 | [虚拟主机部署](/deploy-shared-hosting)：网页安装器 + 同步发信 / URL 计划任务 |
 | 纯 nginx 手工 | 无面板、容器、自己管配置 | 本文「手工部署」一节 |
 | 本地预览 | 还没买服务器，先看长什么样 | 下面「本地 3 分钟跑起来」 |
@@ -337,7 +339,7 @@ curl https://your-domain.com/health
 ```
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.0" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.1" } }
 ```
 
 无 Key 访问业务接口应返回 401，说明鉴权生效：
@@ -359,7 +361,7 @@ curl -i https://your-domain.com/api/v1/mailboxes
 | 白屏 / `Connection refused` | 数据库连不上 | 核对 DB 凭据；用 `127.0.0.1` 而非 `localhost` |
 | 502 / 504 | php-fpm 未启动或超时 | 软件商店重启 PHP，看 `/www/wwwlogs/` 错误日志 |
 | `PDO Driver not found` | 缺 `pdo_mysql` 扩展 | PHP 设置 → 安装扩展，重启 PHP |
-| 改了 PHP 代码不生效 | opcache 缓存 | `/etc/init.d/php-fpm-82 reload` |
+| 改了 PHP 代码不生效 | opcache 缓存 | `/etc/init.d/php-fpm-83 reload` |
 
 ## 控制台
 
@@ -403,7 +405,7 @@ curl -X POST https://your-domain.com/api/v1/send \
 
 `config/config.local.example.php` 里 **`mail.queue.enabled` 默认是 `false`**，也就是同步发信：
 `/api/v1/send` 在请求内完成 SMTP 投递，直接返回真实结果。不需要 worker、不需要计划任务，
-虚拟主机和「先跑起来再说」的场景都用这个。
+虚拟主机与初次部署用这个。
 
 异步队列是可选项：把它打开后 `/api/v1/send` 只做解析与落库，立即返回 `202` +
 `{"status":"queued","log_id":...}`，SMTP 投递交给后台 worker，失败按指数退避重试。
@@ -471,7 +473,7 @@ curl -H "X-API-Key: zc_xxx" https://你的域名/api/v1/logs/<log_id>
 | `mail.queue.max_attempts` | `3` | 最多投递次数（含首次） |
 | `mail.queue.batch` | `10` | worker 单次认领数 |
 | `mail.queue.idle_sleep` | `2` | 队列空时休眠秒数 |
-| `mail.queue.stuck_timeout` | `300` | 认领超时回收（worker 崩溃兜底） |
+| `mail.queue.stuck_timeout` | `300`（下限） | 实际阈值 `max(batch × (total_timeout+5) + 60, 配置值)`，默认约 410s |
 | `mail.queue.retry_base` | `30` | 重试退避基数（秒） |
 
 ---
@@ -534,6 +536,6 @@ php -d extension=openssl cli/test_smtp.php --port=2525 --secure=none
 
 ## 下一步
 
-- [宝塔图形化部署](/deploy-baota) —— 全程点击，含一键初始化脚本
+- [宝塔图形化部署](/deploy-baota) —— 面板操作，含初始化脚本
 - [API 手册](/api) —— 全部接口与参数
 - [设计说明](/architecture) —— 分层、选箱并发、签名机制

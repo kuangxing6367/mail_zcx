@@ -1,5 +1,7 @@
 # 协议与约定
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 本文定义 **ZC Mail Service 的对外契约** —— 一旦破坏，下游调用方、插件作者、部署者就会坏掉的那部分。
 
 三份文档的分工：
@@ -43,7 +45,7 @@
 
 ## 2. 版本与兼容承诺
 
-版本号遵循 `MAJOR.MINOR.PATCH`（见 `CHANGELOG.md`）。
+版本号遵循 `MAJOR.MINOR.PATCH`（见主仓库 [CHANGELOG.md](https://github.com/kuangxing6367/mail_zcx/blob/main/CHANGELOG.md)）。
 
 | 改动类型 | 版本位 | 例子 |
 |---|---|---|
@@ -300,7 +302,7 @@ config.overrides.php    控制台「系统设置」生成             ← 永不
   上游发安全版、分支到期，部署者自行核对更新。未达基线的环境 Web 返回 503、CLI 非零退出。
 - **分层不可越**：`Core`（框架）/ `Mail`（协议）/ `Service`（业务）/ `Controller`（接口）。
   Controller 只做参数校验与响应组装，**不写 SQL**；Service 不碰 HTTP。
-- 保持可审计：没有容器、没有事件总线、没有魔法。宁可多写两行显式调用。
+- 保持可审计：没有容器、没有 ORM、没有魔法。宁可多写两行显式调用。业务扩展走 `Hooks` 的 4 个固定事件，不是通用事件总线。
 
 ### 8.2 提交
 
@@ -319,16 +321,16 @@ config.overrides.php    控制台「系统设置」生成             ← 永不
 规则：
 
 - 一个提交只做一件事。混提交在 review 时会被打回。
-- 安全修复**必须单独成一个提交**，并在 CHANGELOG 顶部标注「建议所有部署升级」。
+- 安全修复**必须单独成一个提交**，并在主仓库 [CHANGELOG.md](https://github.com/kuangxing6367/mail_zcx/blob/main/CHANGELOG.md) 顶部标注「建议所有部署升级」。
 - `main` 任意时刻可发布。功能开发走分支，合并前自测。
 - 提交前跑 `php -l` 对改动文件做语法检查。
 
 ### 8.3 文档同步
 
-- **`docs/` 是唯一事实来源**，README 与站点同源。改行为必须同时改文档，否则视为未完成。
-- 改了对外的接口、事件、配置默认值 → 同时更新 `CHANGELOG.md` 与本文相关章节。
+- **本仓库（mail_zcx-docs）的 `*.md` 是文档唯一事实来源**。主仓库 `docs/` 是同结构快照，改文档改这里，否则下次同步会被覆盖。
+- 改了对外的接口、事件、配置默认值 → 同时更新主仓库 [CHANGELOG.md](https://github.com/kuangxing6367/mail_zcx/blob/main/CHANGELOG.md) 与本文相关章节。
 - 文档里不写未经验证的断言。**没有实测的东西不要写成事实**，宁可写"未验证"。
-- 发版：CHANGELOG 置顶新增版本段 → 改 `app` 里版本号 → 打 git tag。
+- 发版（在主仓库操作）：CHANGELOG 置顶新增版本段 → 改 `config/config.php` 的 `app.version` 与 Webhook UA → 同步本仓库的版本号示例 → 打 git tag。
 
 ---
 
@@ -336,7 +338,7 @@ config.overrides.php    控制台「系统设置」生成             ← 永不
 
 - 发现漏洞**不要开公开 issue**。走 GitHub 仓库的 **Security → Report a vulnerability** 私下报告。
 - 报告请附：影响版本、复现步骤、影响面（能否提权 / 能否读到凭据）、修复建议（可选）。
-- 维护方先在私下确认与修复，修好后统一在 CHANGELOG 的「安全」段公开；
+- 维护方先在私下确认与修复，修好后统一在主仓库 [CHANGELOG.md](https://github.com/kuangxing6367/mail_zcx/blob/main/CHANGELOG.md) 的「安全」段公开；
   公开时给报告者署名（除非要求匿名）。
 - 在补丁发布前，请勿公开细节或 PoC。
 
@@ -347,9 +349,9 @@ config.overrides.php    控制台「系统设置」生成             ← 永不
 本文本身也是契约的一部分：
 
 - 任何**收紧或放宽**对外行为的改动，先改本文，再改代码。
-- 破坏性变更必须先在本文与 CHANGELOG 里写清"旧行为 → 新行为 → 迁移方式"。
+- 破坏性变更必须先在本文与主仓库 [CHANGELOG.md](https://github.com/kuangxing6367/mail_zcx/blob/main/CHANGELOG.md) 里写清"旧行为 → 新行为 → 迁移方式"。
 - 只改措辞、补例子，直接提 PR。
 
 ---
 
-_最后核对：v1.3.0（2026-11-07）。本文与代码不一致时以代码为准，并按上一节提 PR 修正。_
+_最后核对：v1.3.1（2026-11-11）。本文与代码不一致时以代码为准，并按上一节提 PR 修正。_

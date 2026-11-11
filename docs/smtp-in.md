@@ -1,5 +1,7 @@
 # SMTP 入站（用 25 端口收信）
 
+> 本文描述代码中已实现的行为。文档与实现冲突时，以实现为准；未验证的行为不写成事实。
+
 这个页面讲的是：**让别的系统用标准 SMTP 把信投给你**，而不是让它改代码调 HTTP API。
 
 ## 先分清两件事
@@ -68,7 +70,7 @@ mysql -u你的用户 -p 库名 -e "select id,email,status from zc_mailboxes;"
 
 ```bash
 cd /www/wwwroot/你的站点
-/www/server/php/82/bin/php cli/smtpd.php --verbose
+/www/server/php/83/bin/php cli/smtpd.php --verbose
 ```
 
 看到这行就算起来了：
@@ -90,7 +92,7 @@ telnet 127.0.0.1 2525
 SMTP 收进来的信是**入队**的，必须有人投递：
 
 ```bash
-/www/server/php/82/bin/php cli/worker.php
+/www/server/php/83/bin/php cli/worker.php
 ```
 
 没跑 worker 的话，邮件会一直停在 `pending`。
@@ -151,11 +153,16 @@ stream {
 
    没有输出就装：`apt install libnginx-mod-stream`（Ubuntu/Debian）或 `yum install nginx-mod-stream`（CentOS）。
 
-3. **开了 `proxy_protocol on` 就必须让后端也开**。否则后端会把 `PROXY TCP4 ...` 这一行当成 SMTP 命令，直接回 `500`。在 `config.local.php` 里确认：
+3. **开了 `proxy_protocol on` 就必须让后端也开**。否则后端会把 `PROXY TCP4 ...` 这一行当成 SMTP 命令，直接回 `500`。同时确认建连方在 `trusted_proxies` 里，否则后端不采信 PROXY 头：
 
    ```php
-   'smtp_in' => ['proxy_protocol' => true],
+   'smtp_in' => [
+       'proxy_protocol'  => true,
+       'trusted_proxies' => ['127.0.0.1', '::1'],
+   ],
    ```
+
+   v1.3.0 起，只有 accept 得到的直连地址命中 `smtp_in.trusted_proxies` 时才解析 PROXY 头。在此之前，任何直连客户端发一行 `PROXY TCP4 1.2.3.4 ...` 就能改写源 IP，绕过 `allow_ips`。
 
 改完验证：
 
@@ -207,6 +214,8 @@ server {
     'auth_required'   => true,      // 生产必须 true
     'auth_username'   => '',        // 空=任意用户名；填了则必须完全一致
     'allow_ips'       => [],        // 入站 IP 白名单，支持 192.168.1.*
+    'proxy_protocol'  => true,      // nginx 开了 proxy_protocol on 时必须 true
+    'trusted_proxies' => ['127.0.0.1', '::1'], // 只有这些直连方的 PROXY 头才采信
     'max_connections' => 20,        // 瞬时并发会话上限，超了回 421
     'max_size_mb'     => 10,        // 单封信上限
     'max_recipients'  => 50,        // 单封最大收件人数
@@ -217,6 +226,7 @@ server {
 
 - **不校验发件人。** 任何通过认证的客户端都能指定任意 `MAIL FROM`。这是一台「认证中继」，不是开放中继——但如果你把 API Key 泄露了，对方就能用它发信。密钥按密码管理。
 - **默认只监听 127.0.0.1。** 不要改成 `0.0.0.0` 直接暴露，除非你清楚在做什么。
+- **PROXY 头只在可信代理下采信。** 直连地址不在 `smtp_in.trusted_proxies` 时忽略 PROXY 行，源 IP 取直连地址。往 `trusted_proxies` 里填宽泛网段等于恢复伪造风险。
 - **不做来源域名信誉校验、不做 SPF/DKIM 验证。** 入站是「可信客户端投递」模型，不是公网 MTA。
 - **单封上限受数据库字段限制。** `zc_send_jobs.payload` 是 `MEDIUMTEXT`（16MB），而作业载荷是 JSON，换行会被转义，所以 `max_size_mb` 建议不超过 10。
 
@@ -250,7 +260,7 @@ server {
 | 适用方 | 能改代码的系统 | 只能填 SMTP 地址的老系统 |
 | 接口 | `POST /api/v1/send` | `MAIL FROM` / `RCPT TO` / `DATA` |
 | 认证 | `X-API-Key` 头 | AUTH PLAIN / LOGIN，密码=API Key |
-| 返回 | `202 queued` + `log_id` | `250 Ok: queued as <log_id>` |
+| 返回 | 默认同步 `200 success`；开启队列后 `202 queued` + `log_id` | `250 Ok: queued as <log_id>`（队列关闭时为 `250 ... delivered as <log_id>`） |
 | 模板 | 支持 `template` + 变量 | 不支持（客户端自己组信） |
 | 附件 | base64 内联 | 原生 MIME |
 | 日志 / 统计 / Webhook | 有 | 完全一样 |
@@ -267,7 +277,7 @@ server {
 | `535 5.7.8 Authentication failed` | API Key 不对 / 被禁用 / 已过期 | 控制台「API 密钥」里核对状态 |
 | `250 queued` 但收不到信 | worker 没跑 | `php cli/worker.php`，或查 `zc_send_jobs` 的 `status` |
 | 客户端报 `connection refused` | smtpd 没启动 / 端口不对 | `ss -lntp \| grep 2525` |
-| 日志里来源 IP 全是 127.0.0.1 | nginx 没开 `proxy_protocol on` | 开了之后后端也要开 |
+| 日志里来源 IP 全是 127.0.0.1 | nginx 没开 `proxy_protocol on`，或直连方不在 `smtp_in.trusted_proxies`，PROXY 头被忽略 | 两边都开 `proxy_protocol`，并确认 nginx 出口地址在 `trusted_proxies` 中 |
 | `552 5.3.4 Message size exceeds fixed limit` | 超过 `max_size_mb` | 调大配置，注意别超 10MB（见上） |
 
 查队列当前状态：
@@ -279,4 +289,4 @@ mysql -u用户 -p 库名 -e "
 ```
 
 `status` 为 `pending` 且 `next_attempt_at` 是过去时间 → worker 没在跑。
-`status` 为 `processing` 但 `reserved_at` 很久没变 → worker 崩了，等 `stuck_timeout` 秒后会自动回收成 `pending`。
+`status` 为 `processing` 但 `reserved_at` 很久没变 → worker 可能崩了。实际回收阈值是 `max(batch × (total_timeout+5) + 60, stuck_timeout)`，默认约 410s，不是配置里那个裸 300s。
