@@ -256,19 +256,34 @@ class SmtpClient
         if (!is_resource($this->socket)) {
             throw new RuntimeException('SMTP 连接不可用');
         }
-        $written = @fwrite($this->socket, $data);
-        if ($written === false) {
-            throw new RuntimeException('SMTP 写入失败，连接可能已断开');
+
+        // 阻塞 socket 的 fwrite 也不保证一次写完（内核缓冲区满、TLS 记录分片都会短写）。
+        // 只写一次就去读响应，DATA 段会被截断：正文少一截，服务端还会一直等结束符到超时。
+        // 这里循环到字节全部写出去为止。
+        $total = strlen($data);
+        $sent  = 0;
+        while ($sent < $total) {
+            $n = @fwrite($this->socket, $sent === 0 ? $data : substr($data, $sent));
+            if ($n === false || $n === 0) {
+                $meta = @stream_get_meta_data($this->socket);
+                if (!empty($meta['timed_out'])) {
+                    throw new RuntimeException('SMTP 写入超时，连接可能已断开');
+                }
+                throw new RuntimeException('SMTP 写入失败，连接可能已断开');
+            }
+            $sent += $n;
         }
     }
 
     private function readResponse(): string
     {
+        if (!is_resource($this->socket)) {
+            throw new RuntimeException('SMTP 连接不可用');
+        }
+
         // 每次读取前按「会话剩余时间」重设超时，使总时限覆盖整条链路而非单步。
         $wait = $this->remainingTimeout();
-        if (is_resource($this->socket)) {
-            @stream_set_timeout($this->socket, $wait);
-        }
+        @stream_set_timeout($this->socket, $wait);
 
         $buffer = '';
         while (($line = @fgets($this->socket, 515)) !== false) {

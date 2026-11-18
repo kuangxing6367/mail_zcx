@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Core\Config;
+use App\Core\Crypto;
 use App\Core\Logger;
 use App\Core\RequestContext;
 use App\Core\Plugin\Hooks;
@@ -124,6 +125,15 @@ class Mailer
             'payload'       => $logJson === false ? null : mb_substr($logJson, 0, 65535),
         ]);
 
+        // 回调密钥是调用方凭据，且这份载荷会落库（zc_send_jobs.payload 长期保留）。
+        // 明文存库等于把别人的签名密钥抄一份在本地，写入前先加密；
+        // Crypto::decrypt 对不带 enc: 前缀的值原样返回，历史任务仍然可读。
+        $payloadInput = $input;
+        unset($payloadInput['api_key']);
+        if (isset($payloadInput['callback_secret']) && (string) $payloadInput['callback_secret'] !== '') {
+            $payloadInput['callback_secret'] = Crypto::encrypt((string) $payloadInput['callback_secret']);
+        }
+
         $payload = [
             'log_id'       => $logId,
             'request_id'   => $requestId,
@@ -137,7 +147,7 @@ class Mailer
             'cc'           => $this->joinEmails($cc),
             'bcc'          => $this->joinEmails($bcc),
             'missing_vars' => $missing,
-            'input'        => $input,
+            'input'        => $payloadInput,
             'context'      => $context,
         ];
 
@@ -366,11 +376,23 @@ class Mailer
 
     /**
      * 阶段三：回写日志、邮箱计数、触发 Webhook（同步 / 队列共用）
+     *
+     * 回调是「副作用之后」的动作：日志已经写成终态时，回调失败不能反过来
+     * 让调用方以为发信失败。之前的写法把 finalizeCallback 的异常直接抛给了
+     * MailController，结果「邮件已发出 + 日志 success + 接口返回 400」同时成立。
+     * 队列路径早就隔离了这段，这里必须与之一致。
      */
     public function finalize(array $payload, array $result): void
     {
         $this->finalizeLog($payload, $result);
-        $this->finalizeCallback($payload, $result);
+
+        try {
+            $this->finalizeCallback($payload, $result);
+        } catch (\Throwable $e) {
+            Logger::error('状态回调派发失败（投递结果已写入）: ' . $e->getMessage(), [
+                'log_id' => (int) ($payload['log_id'] ?? 0),
+            ]);
+        }
     }
 
     /**
@@ -413,7 +435,8 @@ class Mailer
         $input          = (array) ($payload['input'] ?? []);
         $context        = (array) ($payload['context'] ?? []);
         $callbackUrl    = trim((string) ($input['callback_url'] ?? $input['webhook'] ?? ''));
-        $callbackSecret = trim((string) ($input['callback_secret'] ?? ''));
+        // prepare() 写入队列前加密过；同步路径是明文，decrypt 对无前缀值原样返回
+        $callbackSecret = trim((string) Crypto::decrypt(trim((string) ($input['callback_secret'] ?? ''))));
 
         $webhookPayload = [
             'log_id'       => $logId,

@@ -27,6 +27,14 @@ class Auth
             throw new AuthException('来源 IP 不在白名单内');
         }
 
+        // 全局每分钟上限（security.rate_limit）。
+        // 这个配置项以前只写在 config.php 里、没有任何代码读它 —— 等于一个不存在的开关。
+        // 这里按来源 IP 计数，与 Key 级限流共用同一套文件计数器。
+        $globalLimit = (int) Config::get('security.rate_limit', 0);
+        if ($globalLimit > 0 && !self::rateLimitOk('ip_' . substr(hash('sha256', $ip), 0, 16), $globalLimit)) {
+            throw new AuthException('请求过于频繁，请稍后再试');
+        }
+
         if (!Config::get('security.require_api_key', true)) {
             RequestContext::set('scopes', ['*']);
             return ['id' => 0, 'name' => 'anonymous', 'scopes' => '*', 'rate_limit' => 0, 'allow_ips' => ''];
@@ -48,7 +56,7 @@ class Auth
 
         $scopes = self::parseScopes((string) ($row['scopes'] ?? '*'));
         $rateLimit = (int) $row['rate_limit'];
-        if ($rateLimit > 0 && !self::rateLimitOk((int) $row['id'], $rateLimit)) {
+        if ($rateLimit > 0 && !self::rateLimitOk('key_' . (int) $row['id'], $rateLimit)) {
             throw new AuthException("请求过于频繁，每分钟上限 {$rateLimit} 次");
         }
 
@@ -318,13 +326,14 @@ class Auth
 
     // ---------------- 分钟级限流（原子 + 自动清理） ----------------
 
-    private static function rateLimitOk(int $keyId, int $limit): bool
+    private static function rateLimitOk(string $bucket, int $limit): bool
     {
         $dir = Config::basePath('storage/cache');
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);
         }
-        $file = $dir . '/rate_' . $keyId . '_' . date('YmdHi') . '.txt';
+        $safe = preg_replace('/[^A-Za-z0-9_.-]/', '', $bucket) ?: 'anon';
+        $file = $dir . '/rate_' . $safe . '_' . date('YmdHi') . '.txt';
 
         // 计数文件打不开时放行，避免缓存故障阻断业务
         $fp = @fopen($file, 'c+');

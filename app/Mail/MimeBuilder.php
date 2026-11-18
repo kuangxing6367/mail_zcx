@@ -163,26 +163,33 @@ class MimeBuilder
         }
 
         // ---- 正文结构 ----
+        //
+        // multipart 里的每个部件都必须由「--boundary」单独起头，否则解析器会把
+        // 后续内容当成上一个部件的正文（附件直接被吞掉，客户端看不到）。
+        // 这里逐部件补分隔符，不要再把部件裸拼在一起。
         if ($this->hasAttachments()) {
             $mixed = 'mix_' . $uid;
             $headers[] = 'Content-Type: multipart/mixed; boundary="' . $mixed . '"';
 
-            $body = "\r\n--{$mixed}\r\n";
-            $body .= $this->buildContentPart('alt_' . $uid);
-            $body .= "\r\n";
+            $parts   = [$this->buildContentPart('alt_' . $uid)];
             foreach ($this->attachments as $att) {
-                $body .= $this->buildAttachmentPart($att) . "\r\n";
+                $parts[] = $this->buildAttachmentPart($att);
             }
-            $body .= "--{$mixed}--\r\n";
+
+            $body = '';
+            foreach ($parts as $part) {
+                $body .= '--' . $mixed . "\r\n" . $part . "\r\n";
+            }
+            $body .= '--' . $mixed . "--\r\n";
         } else {
             $part = $this->buildContentPart('alt_' . $uid);
-            // 单部件时把头部并入报文头
+            // 单部件：part 头部就是报文头，必须并进去，不能再放在正文里
             [$partHeaders, $partBody] = explode("\r\n\r\n", $part, 2);
             $headers[] = trim($partHeaders);
-            $body = "\r\n" . $partBody;
+            $body = $partBody;
         }
 
-        $message = implode("\r\n", $headers) . "\r\n" . $body;
+        $message = implode("\r\n", $headers) . "\r\n\r\n" . $body;
 
         return $this->normalizeCrlf($message);
     }
@@ -209,7 +216,7 @@ class MimeBuilder
             $out  .= $this->encodeTextPart($text, 'plain') . "\r\n";
             $out  .= "--{$boundary}\r\n";
             $out  .= $this->encodeTextPart($html, 'html') . "\r\n";
-            $out  .= "--{$boundary}--\r\n";
+            $out  .= "--{$boundary}--";
             return $out;
         }
 
@@ -228,13 +235,38 @@ class MimeBuilder
 
     private function buildAttachmentPart(array $att): string
     {
-        $filename = $this->encodeHeader($att['name']);
-        $lines    = [];
-        $lines[]  = 'Content-Type: ' . $att['mime'] . '; name="' . $filename . '"';
-        $lines[]  = 'Content-Transfer-Encoding: base64';
-        $lines[]  = 'Content-Disposition: attachment; filename="' . $filename . '"';
+        $lines   = [];
+        $lines[] = 'Content-Type: ' . $att['mime'] . ';' . $this->filenameParam('name', $att['name']);
+        $lines[] = 'Content-Transfer-Encoding: base64';
+        $lines[] = 'Content-Disposition: attachment;' . $this->filenameParam('filename', $att['name']);
 
         return implode("\r\n", $lines) . "\r\n\r\n" . $this->base64Wrap($att['data']);
+    }
+
+    /**
+     * 文件名参数。
+     *
+     * 纯 ASCII 直接写引号串；含非 ASCII 时只写 RFC 2231 的
+     * `filename*=UTF-8''<百分号编码>`，不再附带一个 ASCII 兜底值。
+     *
+     * 为什么不两个都写：同时出现 `filename=` 与 `filename*=` 时各客户端的取舍不一致
+     * （解析器实现不同，有的取前者），结果是文件名被兜底值覆盖。只留 `*=` 形式没有歧义。
+     * 也不要用 RFC 2047 的 encoded-word：`filename="=?UTF-8?B?...?="` 不是合法用法，
+     * 多数客户端会把 "?=" 原样当文件名显示。
+     */
+    private function filenameParam(string $param, string $name): string
+    {
+        $name = self::stripCrlf($name);
+        if ($name === '') {
+            $name = 'attachment';
+        }
+        if (!preg_match('/[^\x20-\x7E]/', $name)) {
+            return ' ' . $param . '="' . addcslashes($name, '"\\') . '"';
+        }
+
+        // 保持 rawurlencode 的 %20：部分客户端会把未转义的空格当成参数分隔符，
+        // 宁可全部转义，也不要去猜对方的解析器。
+        return ' ' . $param . "*=UTF-8''" . rawurlencode($name);
     }
 
     /** 地址格式化：有显示名时做 RFC2047 编码 */

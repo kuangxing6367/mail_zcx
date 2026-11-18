@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Core\Database;
+use App\Core\Logger;
 
 /**
  * 发信队列：入队 / 原子认领 / 完成 / 重试 / 回收
@@ -140,30 +141,81 @@ class QueueService
     /**
      * 回收卡死任务（processing 超过阈值）
      * 超过最大尝试次数的直接置 failed，避免无限回收
+     *
+     * 注意：作业表与发送日志是两张表。把作业终结成 failed 时必须同步收口 mail_logs，
+     * 否则 worker 崩溃后这条日志会永远停在 pending（控制台一直显示「排队中」，
+     * stats 的 pending 也永远不归零）—— 之前只改作业表，就是这个问题。
      */
     public function reclaim(int $stuckSeconds, int $maxAttempts = 3): int
     {
+        $max   = max(1, $maxAttempts);
         $stuck = "status = 'processing' AND reserved_at IS NOT NULL
                   AND reserved_at < NOW() - INTERVAL " . max(1, $stuckSeconds) . " SECOND";
 
-        // 1) 已用尽重试次数 → 终结
-        $this->db->query(
-            "UPDATE `{$this->table}`
-             SET status = 'failed',
-                 last_error = CONCAT('投递超时且已达最大重试次数（attempts=', attempts, '）'),
-                 finished_at = NOW(), reserved_at = NULL, reserved_by = ''
-             WHERE {$stuck} AND attempts >= ?",
-            [max(1, $maxAttempts)]
-        );
+        return $this->db->transaction(function (Database $db) use ($stuck, $max): int {
+            // 1) 已用尽重试次数 → 终结（先取出明细，才能同步收口日志与邮箱计数）
+            $expired = $db->fetchAll(
+                "SELECT id, log_id, mailbox_id, attempts FROM `{$this->table}`
+                 WHERE {$stuck} AND attempts >= ? FOR UPDATE",
+                [$max]
+            );
 
-        // 2) 还有机会的任务退回 pending，并计一次尝试，防止无限回收
-        return $this->db->query(
-            "UPDATE `{$this->table}`
-             SET status = 'pending', attempts = attempts + 1,
-                 reserved_at = NULL, reserved_by = '', next_attempt_at = NOW()
-             WHERE {$stuck} AND attempts < ?",
-            [max(1, $maxAttempts)]
-        )->rowCount();
+            if ($expired) {
+                $ids = array_map('intval', array_column($expired, 'id'));
+                $ph  = implode(',', array_fill(0, count($ids), '?'));
+                $db->query(
+                    "UPDATE `{$this->table}`
+                     SET status = 'failed',
+                         last_error = CONCAT('投递超时且已达最大重试次数（attempts=', attempts, '）'),
+                         finished_at = NOW(), reserved_at = NULL, reserved_by = ''
+                     WHERE id IN ({$ph})",
+                    $ids
+                );
+                $this->closeLogs($db, $expired);
+            }
+
+            // 2) 还有机会的任务退回 pending，并计一次尝试，防止无限回收
+            return $db->query(
+                "UPDATE `{$this->table}`
+                 SET status = 'pending', attempts = attempts + 1,
+                     reserved_at = NULL, reserved_by = '', next_attempt_at = NOW()
+                 WHERE {$stuck} AND attempts < ?",
+                [$max]
+            )->rowCount();
+        });
+    }
+
+    /**
+     * 把被回收终结的作业对应的发送日志收口为 failed，并退回选箱时预占的名额。
+     * 只处理仍为 pending 的日志：worker 若在回收前后已经写入终态，不要覆盖。
+     *
+     * @param array<int,array<string,mixed>> $jobs
+     */
+    private function closeLogs(Database $db, array $jobs): void
+    {
+        $logs = $db->table('mail_logs');
+        foreach ($jobs as $job) {
+            $logId = (int) $job['log_id'];
+            if ($logId <= 0) {
+                continue;
+            }
+            $changed = $db->query(
+                "UPDATE `{$logs}`
+                 SET status = 'failed', smtp_code = '',
+                     error = CONCAT('作业超时被回收：processing 状态超过阈值，attempts=', ?)
+                 WHERE id = ? AND status = 'pending'",
+                [(int) $job['attempts'], $logId]
+            )->rowCount();
+
+            if ($changed > 0) {
+                // 预占发生在 selectForSend()，失败必须退回，否则 sent_total / 日限额会一直虚高
+                try {
+                    (new MailboxService())->recordFailure((int) $job['mailbox_id'], '作业超时被回收');
+                } catch (\Throwable $e) {
+                    Logger::warning('回收后回退邮箱计数失败: ' . $e->getMessage(), ['log_id' => $logId]);
+                }
+            }
+        }
     }
 
     /** 队列积压数量（pending + processing），供仪表盘展示 */
