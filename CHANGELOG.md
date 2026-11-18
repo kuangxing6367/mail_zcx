@@ -2,6 +2,56 @@
 
 ## 未发布
 
+## v1.3.2 — 2026-11-18
+
+修复版本。接口路径、入参名、响应字段、事件名均未改动，升级不用改调用方代码。
+
+### 修复
+
+- **带附件的邮件发不出去（附件被静默丢弃）**：`MimeBuilder` 在 `multipart/mixed`
+  里漏了附件部件前的 `--boundary` 分隔符，附件被解析器当成上一个部件的正文吞掉 ——
+  Gmail / Outlook / Python 的解析器都看不到附件，正文还掺进一段 base64。
+  现在每个部件都由自己的 boundary 起头，单部件时头部仍并入报文头。
+- **中文附件名显示成 `?=`**：`filename` 参数里塞 RFC 2047 encoded-word 不是合法用法。
+  改为 RFC 2231（`filename*=UTF-8''…`），且只写这一种形式 ——
+  同时给 `filename=` 与 `filename*=` 时各客户端取舍不同，会出现文件名被兜底值覆盖。
+- **worker 崩溃后日志永远 pending**：`QueueService::reclaim()` 把作业置 `failed` 时只改
+  作业表，不动 `mail_logs`。控制台一直显示「排队中」，`stats` 的 pending 永不归零，
+  选箱时预占的 `sent_total` / 日限额也不回退。现在回收时同事务收口日志（只覆盖仍为
+  `pending` 的行，不碰已写终态的）并回退邮箱计数。
+- **同步投递被回调异常连坐**：队列路径把 `finalizeCallback` 的异常隔离了，同步路径没有。
+  状态回调抛错会让 `MailController` 返回 400，而邮件其实已发出、日志也是 success。
+  `Mailer::finalize()` 现在统一隔离回调异常，两条路径行为一致。
+- **大报文可能被截断**：`SmtpClient::write()` 只调用一次 `fwrite`。阻塞 socket 也不保证
+  一次写完（内核缓冲区满、TLS 分片都会短写），只写一次就去读响应会让 DATA 段缺一截，
+  对端一直等结束符到超时。改为循环写满；`readResponse()` 补 socket 有效性检查，
+  避免连接已关闭时 `fgets(null)` 抛 `TypeError` 而不是可读的 SMTP 错误。
+- **`security.rate_limit` 是个假开关**：配置里写着「全局每分钟请求上限」，代码里没有任何
+  地方读它。现在按来源 IP 计数（与 Key 级限流共用文件计数器），超限返回
+  「请求过于频繁，请稍后再试」。
+
+### 安全
+
+- 队列载荷落库前剔除 `api_key`，`callback_secret` 改为加密存储
+  （`zc_send_jobs.payload` 会长期保留，明文存调用方签名密钥等于在本地抄一份）。
+  `Crypto::decrypt()` 对无 `enc:` 前缀的值原样返回，历史任务照常可读。
+
+### 杂项
+
+- 主仓库 `docs/` 移除 `.vitepress/`、`package.json`、`package-lock.json`、`public/CNAME`：
+  文档站迁出后这些只会让人以为还能在本仓库构建第二份站点，与「`docs/` 只保留 md 快照」
+  的说法冲突。README 的目录说明同步。
+- `app.version` → `1.3.2`；出站 Webhook UA 同步。
+
+### 验证
+
+- PHP 8.4 全量 `-l` 语法检查：48 个文件全过。
+- MIME 用例（纯文本 / 纯 HTML / text+html / ASCII 附件 / 中文附件名）逐个用独立解析器
+  （Python `email`）复核：附件存在、文件名正确、正文未被污染。
+- 端到端：4MB 随机二进制附件 → `MimeBuilder` → `SmtpClient` → 本地 SMTP 接收端，
+  收到 5,740,546 字节与发出完全一致，附件解出后 SHA-256 与原文相同。
+- 回归自检 21 项（头注入、地址解析、限流计数、Crypto 往返、回收收口、回调隔离）全过。
+
 ## v1.3.1 — 2026-11-11
 
 修复版本。按 `contract.md` 的版本承诺，改行为之外的 bug 修复 / 默认值 / 文档 = PATCH。
