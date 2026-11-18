@@ -339,7 +339,7 @@ curl https://your-domain.com/health
 ```
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.1" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.2" } }
 ```
 
 无 Key 访问业务接口应返回 401，说明鉴权生效：

@@ -40,7 +40,8 @@ config.overrides.php    控制台「系统设置」生成，不入库，优先�
 - 协议层只有 300 行（`SmtpClient.php`），可控且容易排查线上问题。
 
 `SmtpClient` 支持 465（隐式 TLS）、587（STARTTLS）、25（明文），以及 AUTH LOGIN / PLAIN。
-`MimeBuilder` 处理 multipart/alternative、附件 base64、中文 RFC 2047 编码。
+`MimeBuilder` 处理 multipart/alternative、附件 base64、中文 RFC 2047 编码；
+附件文件名用 RFC 2231（`filename*=UTF-8''…`），不用 encoded-word —— 后者的 `?=` 会被客户端当字面量显示。
 
 ## 选箱与并发
 

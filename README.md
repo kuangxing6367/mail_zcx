@@ -19,7 +19,8 @@
 - **问题反馈**：https://github.com/kuangxing6367/mail_zcx/issues
 
 > **文档源文件以 [mail_zcx-docs](https://github.com/kuangxing6367/mail_zcx-docs) 为准。**
-> 本仓库的 `docs/` 是同结构快照，方便读代码时顺手查；改文档请改文档仓库，否则下次同步会覆盖。
+> 本仓库的 `docs/` 只有 `.md` 快照（不含 `.vitepress`、`package.json` 等构建文件），
+> 方便读代码时顺手查；改文档请改文档仓库，否则下次同步会覆盖。
 
 ---
 
@@ -91,7 +92,7 @@ cli/
   test_smtp.php           # SMTP 连通性自测
   mock_smtp.php           # 本地 mock SMTP 服务器（联调用）
 routes.php                # 路由表
-docs/API.md               # API 手册（文档站源文件）
+docs/API.md               # API 手册（文档站快照，源文件在 mail_zcx-docs）
 storage/                  # 日志 / 证书 / 限流缓存
 ```
 
