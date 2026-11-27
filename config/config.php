@@ -11,7 +11,7 @@
 return [
     'app' => [
         'name'     => 'ZC Mail Service',
-        'version'  => '1.3.2',
+        'version'  => '1.3.3',
         'debug'    => false,                // 本地调试时在 config.local.php 中改为 true
         'timezone' => 'Asia/Shanghai',
         'base_path'=> '',                   // 若部署在子目录（如 /mail）则填 '/mail'
@@ -23,8 +23,10 @@ return [
         'host'     => '127.0.0.1',
         'port'     => 3306,
         'database' => 'zc_mail',
-        'username' => 'root',
-        'password' => '',
+        // 出厂值不可用于连接：必须在 config/config.local.php 里填真实凭据。
+        // 安装器在检测到本地配置缺失时会直接拒绝，避免用 root/空密码建库。
+        'username' => '__SET_IN_CONFIG_LOCAL__',
+        'password' => '__SET_IN_CONFIG_LOCAL__',
         'charset'  => 'utf8mb4',
         'prefix'   => 'zc_',                // 表前缀
     ],
@@ -39,8 +41,9 @@ return [
         'require_api_key' => true,
         // 全局 IP 白名单，空数组表示不限制；支持 192.168.1.* 通配与 10.0.0.0/8 CIDR
         'allow_ips'       => [],
-        // 只有直连方（REMOTE_ADDR）命中此列表时才采信 X-Forwarded-For / CF-Connecting-IP。
-        // 反代或 CDN 在本地时保持默认；直连公网部署时不要放开，否则 IP 白名单可被伪造。
+        // 只有直连方（REMOTE_ADDR）命中此列表时才采信 X-Forwarded-For。
+        // CF-Connecting-IP / X-Real-IP 一律不采信：它们没有从右往左跳过代理的语义，可伪造。
+        // 反代或 CDN 在本地时保持默认；不要填 '*'，否则来源 IP 完全由请求头决定。
         'trusted_proxies' => ['127.0.0.1', '::1'],
         // 全局每分钟请求上限，0 = 不限
         'rate_limit'      => 0,
@@ -52,6 +55,9 @@ return [
         'max_body_bytes'  => 16777216,
         // 入站 Webhook 的时间戳容差（秒）：body 里的 timestamp 与服务器时间相差超过此值即拒绝（防重放）
         'timestamp_window'=> 300,
+        // 入站 Webhook 必须携带 timestamp：默认 false 兼容老调用方；
+        // 自建接收端建议改为 true，配合已接收签名的去重彻底关掉重放。
+        'require_timestamp' => false,
         // 入站 Webhook（/api/v1/hook/inbound）签名密钥；留空 = 该接口禁用（返回 403）
         'inbound_secret'  => '',
         // CORS 允许的来源：默认空 = 不发 CORS 头（同源部署不需要）。
@@ -110,6 +116,9 @@ return [
         'total_timeout'      => 30,
         // SMTP 出站是否校验证书。自建/自签名服务器可设 false，公网邮箱必须保持 true
         'smtp_verify_tls'    => true,
+        // 允许 SMTP 主机指向内网/回环地址。默认关闭，防止持有 mailboxes scope 的 Key
+        // 借「连通性测试」探测 127.0.0.1 / 169.254.169.254。自建内网中继需显式打开。
+        'allow_private_smtp_hosts' => false,
         'selection'          => 'least_sent', // 选箱策略: least_sent | round_robin | random | weight
         'max_recipients'     => 100,          // 单封邮件最大收件人总数
         'max_attachment_mb'  => 10,           // 单封邮件附件总大小上限(MB)
@@ -183,7 +192,7 @@ return [
         'timeout'     => 5,                   // 出站回调超时（秒）
         'retry'       => 2,                   // 失败重试次数
         'sign_header' => 'X-ZC-Signature',    // 签名头名称
-        'user_agent'  => 'ZC-Mail-Service/1.3.2',
+        'user_agent'  => 'ZC-Mail-Service/1.3.3',
         'async'       => true,                // true: 响应后投递(fastcgi_finish_request)
         // 非 FPM 环境（php -S / mod_php / CGI）没有 fastcgi_finish_request，
         // shutdown function 会在响应发送前执行，注册它等于同步阻塞。

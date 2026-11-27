@@ -2,6 +2,63 @@
 
 ## 未发布
 
+## v1.3.3 — 2026-11-27
+
+安全加固版本。接口路径、入参名、响应字段、事件名均未改动；有两处默认行为收紧，见「升级注意」。
+
+### 安全
+
+- **来源 IP 可伪造**：`Request::ip()` 无条件采信 `CF-Connecting-IP` / `X-Real-IP`。默认部署里 nginx 与 PHP 同机，
+  `REMOTE_ADDR` 恒为 `127.0.0.1`，客户端发一个头就能改写来源 IP，绕过 IP 白名单、鉴权失败锁定与两级限流。
+  现在只采信 `X-Forwarded-For`，且仍从右往左跳过可信代理。
+- **控制台存储型 XSS**：邮箱列表的删除按钮把 `esc(m.email)` 拼进 `onclick` 属性；HTML 属性会先做实体解码
+  再交给 JS 引擎，带引号的邮箱地址（`filter_var` 接受）可闭合字符串执行脚本，窃取控制台保存的 API Key。
+  现在只传 id，显示名从已加载的列表按 id 取。
+- **Webhook 签名密钥明文回显**：`GET /api/v1/webhooks` 与 `/webhooks/{id}` 把出站 HMAC secret 原文返回，
+  与项目自身「任何出口不返回明文密钥」的约定冲突。现在只回掩码，编辑时留空表示不修改。
+- **安全开关可在线关闭**：`security.trusted_proxies`、`webhook.allow_private_hosts`、`webhook.verify_tls`、
+  `mail.smtp_verify_tls`、`app.debug` 从在线设置白名单移除，只能手工改 `config.local.php`，
+  避免一个设置项 Key 关掉整条防护链。
+- **SMTP 主机 SSRF**：持有 `mailboxes` scope 的 Key 可把 SMTP 主机设为 `127.0.0.1` / `169.254.169.254`，
+  再用连通性测试回显的 banner 探测内网端口。现在默认只放行公网主机；测试失败只回通用错误，细节写服务端日志。
+- **安装器可用出厂凭据建库**：`config.php` 里的 `root` / 空密码不再是可用默认值。缺 `config.local.php`
+  或凭据仍是占位值时，CLI 与网页安装器都直接拒绝。
+- **入站 Webhook 重放**：新增 `security.require_timestamp`（默认 false，兼容老调用方）；带 `timestamp` 的请求
+  按签名去重，窗口内原样重放直接拒绝。
+- `X-Request-Id` 做白名单校验；Webhook 自定义头过滤 CR/LF；`smtpd --verbose` 不再打印 AUTH 凭据。
+
+### 修复
+
+- `deploy/bootstrap.sh` 的 `chmod -R 775 storage` 会把根密钥从 `0600` 放开成 `0775`，并把含 DB 密码的
+  配置文件设为 `644`。安装后重新收紧这三个文件。
+- supervisor worker 模板用裸 `php`，与同目录 smtpd 模板及全部文档矛盾；改为完整路径 + `PHP_INI_SCAN_DIR`。
+- nginx 示例补 `try_files $uri =404`，防止 PATH_INFO 把非 PHP 文件交给 PHP-FPM；`/zc-cron.php` 关闭 access log。
+- 示例 nginx 文件名去掉真实域名，改为 `nginx-mail.conf.example`。
+- schema 为 `zc_inbound_events.signature` 补前缀索引。
+
+### 文档
+
+- 插件事件签名统一为双参 `function (array $data, PluginContext $ctx): array`（`contract.md` 原先写成单参）。
+- 首次部署顺序修正为先建 `config.local.php` 再执行安装；`app_secret` 示例改为留空自动生成；
+  cron 推荐用请求头传令牌。
+- 设置项白名单、Webhook secret 掩码、SMTP 主机限制与时间戳开关写入 `API.md`；
+  数据库变更指引指向 `app/Service/InstallerService.php`。
+- 架构文档「后续方向」标注为未实现：模板版本管理与灰度、退信解析、队列可视化重放与死信管理。
+
+### 升级注意
+
+- 使用内网 / 自签名 SMTP 中继的部署，需在 `config.local.php` 设 `mail.allow_private_smtp_hosts => true`，
+  否则保存邮箱会报「指向内网/保留地址」。
+- 网页在线改安全开关的流程已取消；已有 `config.overrides.php` 里的值继续生效，只是不能再通过 API 修改。
+- 老库不会自动新增 `idx_signature` 索引，签名去重仍能工作，只是查询走全表扫描；可在维护窗口手工补。
+
+### 验证
+
+- PHP 8.4 全量 `-l`：48 个文件全过；`bash -n deploy/bootstrap.sh` 通过。
+- 安全回归 25 项全过：伪造头忽略、XFF 取真实客户端、请求 ID 白名单、五个安全设置项拒绝写入、
+  Webhook secret 掩码与空值不回写、回环/保留地址判定、SMTP 内网拒绝、控制台 XSS 注入点移除、
+  版本与配置一致性。
+
 ## v1.3.2 — 2026-11-18
 
 修复版本。接口路径、入参名、响应字段、事件名均未改动，升级不用改调用方代码。
