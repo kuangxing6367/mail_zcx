@@ -234,6 +234,7 @@ chown -R www:www .
 find . -type d -exec chmod 755 {} \;
 find . -type f -exec chmod 644 {} \;
 chmod -R 775 storage   # 有 SSH 的服务器：PHP 用户与文件同组；别无脑 777
+chmod 600 storage/app_secret.local config/config.local.php config/config.overrides.php
 ```
 
 `storage/logs`、`storage/certs` 必须可写，否则日志写不进去会报错。

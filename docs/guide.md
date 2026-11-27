@@ -229,8 +229,8 @@ supervisor / systemd / crontab 里同样写绝对路径，别用裸 `php` 碰运
 ## 首次部署顺序（照这个顺序做，别跳步）
 
 1. 上传完整源码包到站点根目录（[宝塔](/deploy-baota) / 手工）
-2. 创建 MySQL 数据库，导入 `sql/schema.sql`，或执行 `php cli/install.php`
-3. 从 `config/config.local.example.php` 复制出 `config/config.local.php`，填 DB 凭据与 `app_secret`
+2. 从 `config/config.local.example.php` 复制出 `config/config.local.php`，填 DB 凭据
+3. 创建 MySQL 数据库，执行 `php cli/install.php` 建表（v1.3.3 起缺本地配置会直接拒绝安装）
 4. **把站点运行目录设为 `public/`**
 5. 配伪静态 `try_files`，并**删掉宝塔的 `error_page 404 /404.html`**
 6. 申请 SSL 证书、强制 HTTPS
@@ -278,7 +278,7 @@ return [
         'prefix'   => 'zc_',
     ],
     'security' => [
-        'app_secret' => '至少64位随机字符串',   // openssl rand -hex 32
+        'app_secret' => '',   // 留空更安全：首次运行自动生成本机密钥
     ],
 ];
 ```
@@ -296,7 +296,7 @@ php cli/install.php
 
 ### 4. nginx 配置
 
-完整可用示例在仓库 [`deploy/nginx-mail-zgric.top.conf.example`](https://github.com/kuangxing6367/mail_zcx/blob/main/deploy/nginx-mail-zgric.top.conf.example)，核心是：
+完整可用示例在仓库 [`deploy/nginx-mail.conf.example`](https://github.com/kuangxing6367/mail_zcx/blob/main/deploy/nginx-mail.conf.example)，核心是：
 
 ```nginx
 server {
@@ -339,7 +339,7 @@ curl https://your-domain.com/health
 ```
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.2" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.3" } }
 ```
 
 无 Key 访问业务接口应返回 401，说明鉴权生效：

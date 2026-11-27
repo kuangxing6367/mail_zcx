@@ -215,7 +215,7 @@ curl https://你的域名/
 保持 `queue.enabled => true`，然后让面板定时访问：
 
 ```
-https://你的域名/zc-cron.php?token=你的cron_token
+curl -H "X-Cron-Token: 你的cron_token" https://你的域名/zc-cron.php
 ```
 
 - 频率：**每 1 分钟**
@@ -224,8 +224,8 @@ https://你的域名/zc-cron.php?token=你的cron_token
 - 有文件锁，两个 cron 撞上时后来的直接返回「上一轮仍在执行，本次跳过」
 - 不支持「访问 URL」型计划任务的商家，就只能用方式 A
 
-`token` 会出现在访问日志里，介意的话把 `cron_token` 设长一点，或者改用
-`curl -H "X-Cron-Token: xxx"`（多数面板计划任务只支持填 URL，那就只能放 query）。
+用请求头传令牌，避免 token 进入 access log 与面板计划任务历史。
+仍兼容 `?token=`（nginx 示例对该路径关掉了 access log），但只应作为没有自定义请求头时的兜底。
 
 ---
 

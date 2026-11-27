@@ -232,3 +232,5 @@ claim(send_jobs, FOR UPDATE) → connect/EHLO/STARTTLS/AUTH → MAIL/RCPT/DATA �
 - 模板版本管理与灰度；
 - 退信（bounce）解析；
 - 队列任务的可视化重放与死信管理。
+
+以上三项均未实现，不在当前版本的接口契约内。

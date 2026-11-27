@@ -406,10 +406,18 @@ Content-Type: application/json
 - 未在白名单里的键直接 `400`，不会部分写入
 - 值按类型校验（布尔 / 整数范围 / 枚举 / 正则），**密钥类字段留空表示不改**，传 `null` 表示清除
 - 密钥类（`security.cron_token` 等）读取时只回 `is_set`，不返回明文
+- Webhook 列表与详情的 `secret` 只回掩码；编辑时留空表示不修改
 - 返回里的 `restart` 含 `worker` 表示这项改动要重启常驻 worker 才生效
 - `config` 目录不可写时返回 `400` 并说明进程用户与目录路径
 
-> 不在白名单的项（数据库、`app_secret`、IP 白名单、SMTP 入站）需要手工编辑 `config.local.php`。
+> 不在白名单的项（数据库、`app_secret`、IP 白名单、SMTP 入站，以及 `security.trusted_proxies`、
+> `security.require_api_key`、`app.debug`、`webhook.verify_tls`、
+> `webhook.allow_private_hosts`、`mail.smtp_verify_tls`、`mail.attachment_roots`）
+> 需要手工编辑 `config.local.php`。安全相关的开关不开放在线修改，避免一个设置项 Key 关掉整条防护链。
+
+> v1.3.3 起 `mail.allow_private_smtp_hosts` 默认关闭：SMTP 主机必须是公网地址。
+> 自建内网中继需在 `config.local.php` 显式打开。`security.require_timestamp` 打开后，
+> 入站 Webhook 必须带 `timestamp`，服务端同时按签名去重。
 
 ---
 
@@ -446,7 +454,7 @@ Content-Type: application/json
 ### `GET /health`（免鉴权）
 
 ```json
-{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.2", "time": "2026-10-13T20:49:26+08:00" } }
+{ "code": 0, "msg": "ok", "data": { "service": "ZC Mail Service", "version": "1.3.3", "time": "2026-10-13T20:49:26+08:00" } }
 ```
 
 默认不返回 PHP 版本；需要时在 `config.local.php` 设 `app.health_detail = true`。

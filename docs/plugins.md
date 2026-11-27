@@ -130,7 +130,7 @@ class Plugin
 ```php
 use App\Core\Plugin\Hooks;
 
-$ctx->on(Hooks::BEFORE_PREPARE, function (array $data): array {
+$ctx->on(Hooks::BEFORE_PREPARE, function (array $data, PluginContext $ctx): array {
     $input = $data['input'];
     if (($input['to'] ?? '') === 'blocked@example.com') {
         Hooks::reject('收件人在黑名单中');

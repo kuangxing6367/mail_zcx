@@ -79,7 +79,7 @@ public/
 app/
   Core/                   # Config / Database / Request / Response / Router / Auth / Crypto / Logger
   Mail/                   # SmtpClient / MimeBuilder / Mailer
-  Service/                # Mailbox / Template / Log / Webhook / ApiKey
+  Service/                # Mailbox / Template / Log / Webhook / ApiKey / Queue / Worker / Settings / Installer
   Controller/
 config/
   config.php              # 主配置（可开源，不含凭据）
@@ -119,7 +119,7 @@ storage/                  # 日志 / 证书 / 限流缓存
 |---|---|
 | **宝塔面板（推荐）** | [文档站 · 宝塔图形化部署](https://mail.zgric.top/deploy-baota)，全程点击 + `deploy/bootstrap.sh` 一键初始化 |
 | **虚拟主机（无 SSH）** | [文档站 · 虚拟主机部署](https://mail.zgric.top/deploy-shared-hosting)：网页安装器 + 同步发信或 URL 计划任务 |
-| 纯 nginx 手工 | 本文下面第 4 步 + `deploy/nginx-mail-zgric.top.conf.example` |
+| 纯 nginx 手工 | 本文下面第 4 步 + `deploy/nginx-mail.conf.example` |
 | 本地预览 | 项目根执行 `php -S 127.0.0.1:8000 -t public public/index.php`，打开 `http://127.0.0.1:8000/zc-console/` |
 
 > 完整入口说明、首次部署顺序、常见报错速查见[文档站 · 快速开始](https://mail.zgric.top/guide)。
@@ -149,7 +149,7 @@ return [
         'prefix'   => 'zc_',
     ],
     'security' => [
-        'app_secret' => '至少64位随机字符串',   // openssl rand -hex 32
+        'app_secret' => '',   // 留空更安全：首次运行自动生成本机密钥
     ],
 ];
 ```
@@ -201,7 +201,7 @@ php cli/worker.php --once
 不启动 worker，邮件会一直停在 `pending`。
 
 没有 SSH / CLI 的虚拟主机想用队列：配「访问 URL」型计划任务每分钟请求
-`https://你的域名/zc-cron.php?token=你的cron_token`（需先在系统设置或配置里设 `security.cron_token`），
+`curl -H "X-Cron-Token: 你的cron_token" https://你的域名/zc-cron.php`（需先设 `security.cron_token`；仍兼容 `?token=` 兜底），
 详见[虚拟主机部署](https://mail.zgric.top/deploy-shared-hosting)。
 
 > 控制台的「系统设置」页可以直接切换这些开关，改动写入 `config/config.overrides.php`，
@@ -484,7 +484,7 @@ php -d extension=openssl cli/test_smtp.php --port=2525 --secure=none
 
 - [`docs/API.md`](docs/API.md) —— 接口契约，破坏性改动需同步更新
 - 保持零依赖：新增功能优先用原生 PHP，不引入 composer 包
-- 涉及数据库结构变更时，同步更新 `sql/schema.sql` 与 `cli/install.php`
+- 涉及数据库结构变更时，同步更新 `sql/schema.sql` 与 `app/Service/InstallerService.php` 的增量迁移
 
 ---
 

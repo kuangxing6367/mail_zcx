@@ -41,7 +41,7 @@ features:
 | 对外 | `/api/v1/**` HTTP JSON 接口；可选 SMTP 入站（25 / 587） |
 | 发信模式 | 默认同步，返回 `200`；开启 `mail.queue.enabled` 后返回 `202` + `log_id` |
 | 鉴权 | 请求头 `X-API-Key` / `X-ZC-Key` / `Authorization: Bearer`。URL 传参不支持 |
-| 当前版本 | `1.3.2`。兼容承诺见[协议与约定](/contract) |
+| 当前版本 | `1.3.3`。兼容承诺见[协议与约定](/contract) |
 | 许可 | WTFPL v2 |
 
 ## 先读哪个
