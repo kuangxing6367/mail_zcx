@@ -650,7 +650,7 @@ async function pageMailboxes(){
           <td class="right nowrap">
             <button class="btn g s" onclick="testMailbox(${m.id})">测试</button>
             <button class="btn g s" onclick="editMailbox(${m.id})">编辑</button>
-            <button class="btn d s" onclick="delMailbox(${m.id},'${esc(m.email)}')">删除</button>
+            <button class="btn d s" onclick="delMailbox(${m.id})">删除</button>
           </td>
         </tr>`).join('')}</tbody></table></div></div>`;
     window.__mbs = r.items;
@@ -727,7 +727,11 @@ async function testMailbox(id){
 }
 window.testMailbox = testMailbox;
 
-function delMailbox(id, email){
+function delMailbox(id){
+  // 不在 onclick 属性里拼服务端字符串：HTML 属性会先做实体解码再交给 JS 引擎，
+  // 带引号的邮箱地址（filter_var 允许）可借此闭合字符串执行任意脚本。
+  const item = (window.__mbs||[]).find(x=>x.id===id);
+  const email = item ? item.email : ('#'+id);
   confirmBox(`确定删除邮箱 <b class="mono">${esc(email)}</b> 吗？<br><span class="mut">该操作不可撤销，历史日志会保留。</span>`, async () => {
     try { await jdel('/mailboxes/'+id); toast('已删除', 'ok'); pageMailboxes(); }
     catch(e){ toast(e.message, 'err'); }
@@ -917,7 +921,7 @@ async function editHook(id){
     <div class="row"><div><label class="f">回调地址 *</label>
       <input id="wUrl" value="${esc(w.url||'')}" placeholder="https://your.app/hook"></div></div>
     <div class="row c2">
-      <div><label class="f">签名密钥</label><input id="wSecret" value="${esc(w.secret||'')}" placeholder="留空则不签名"></div>
+      <div><label class="f">签名密钥</label><input id="wSecret" value="" placeholder="${id?'已设置，留空表示不修改':'留空则不签名'}"></div>
       <div><label class="f">重试次数</label><input id="wRetry" type="number" value="${w.retry??2}"></div>
     </div>
     <div class="row"><div><label class="f">触发事件</label>
@@ -926,6 +930,8 @@ async function editHook(id){
   $('#wSave').onclick = async () => {
     const body = { name:$('#wName').value.trim(), url:$('#wUrl').value.trim(), secret:$('#wSecret').value,
       retry:Number($('#wRetry').value), events:$('#wEvents').value.trim(), status:Number($('#wStatus').value) };
+    // 列表/详情不再返回明文密钥；编辑时留空即保持原值，不把掩码串写回数据库。
+    if (id && !body.secret) delete body.secret;
     if (!body.url) return toast('回调地址必填', 'warn');
     const b = $('#wSave'); b.disabled = true; b.textContent = '保存中…';
     try {

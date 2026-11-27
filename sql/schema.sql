@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS `zc_inbound_events` (
   `verified`   TINYINT      NOT NULL DEFAULT 0             COMMENT '签名是否通过',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_created` (`created_at`)
+  KEY `idx_created` (`created_at`),
+  KEY `idx_signature` (`signature`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入站 Webhook 事件';
 
 -- -------------------------------------------------------------

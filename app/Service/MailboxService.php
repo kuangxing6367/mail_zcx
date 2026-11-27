@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Core\Config;
 use App\Core\Crypto;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Mail\SmtpClient;
 use RuntimeException;
 
@@ -284,21 +285,62 @@ class MailboxService
                 'message'     => 'SMTP 连接与认证成功',
                 'duration_ms' => (int) round((microtime(true) - $start) * 1000),
                 'capabilities'=> array_keys($caps),
-                'session'     => $client->sessionLog(),
             ];
         } catch (\Throwable $e) {
             if ($client) {
                 $client->close();
             }
+            // 服务端 banner 与内部异常原文不回调用方：测试接口否则就是内网端口探测器。
+            Logger::warning('SMTP 连通性测试失败', [
+                'host'  => $cred['host'],
+                'error' => $e->getMessage(),
+            ]);
             return [
                 'ok'          => false,
-                'message'     => $e->getMessage(),
+                'message'     => 'SMTP 连接或认证失败，请检查主机、端口、凭据与证书设置',
                 'duration_ms' => (int) round((microtime(true) - $start) * 1000),
             ];
         }
     }
 
     // ------------------------------------------------------------------
+
+    /** SMTP 主机默认只允许公网地址；内网自建中继需显式打开配置开关 */
+    private function assertPublicSmtpHost(string $host): void
+    {
+        $host = trim($host);
+        if ($host === '') {
+            throw new RuntimeException('SMTP 主机不能为空');
+        }
+
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            foreach ((array) @dns_get_record($host, DNS_A | DNS_AAAA) as $rec) {
+                if (!empty($rec['ip'])) {
+                    $ips[] = (string) $rec['ip'];
+                }
+                if (!empty($rec['ipv6'])) {
+                    $ips[] = (string) $rec['ipv6'];
+                }
+            }
+            if (!$ips) {
+                $resolved = @gethostbyname($host);
+                if (filter_var($resolved, FILTER_VALIDATE_IP)) {
+                    $ips[] = $resolved;
+                }
+            }
+        }
+        if (!$ips) {
+            throw new RuntimeException('SMTP 主机无法解析');
+        }
+        foreach ($ips as $ip) {
+            if (!WebhookService::isPublicIp($ip)) {
+                throw new RuntimeException('SMTP 主机指向内网/保留地址；自建内网中继请在 config.local.php 打开 mail.allow_private_smtp_hosts');
+            }
+        }
+    }
 
     /**
      * 字段白名单与归一化
@@ -332,6 +374,12 @@ class MailboxService
             if ($row['smtp_port'] < 1 || $row['smtp_port'] > 65535) {
                 throw new RuntimeException('SMTP 端口不合法');
             }
+        }
+
+        // mailboxes scope 本来就能改 SMTP 主机；不限制目标时，「连通性测试」
+        // 等价于让服务端去连任意内网端口。默认只放行公网主机。
+        if (isset($row['smtp_host']) && !(bool) Config::get('mail.allow_private_smtp_hosts', false)) {
+            $this->assertPublicSmtpHost((string) $row['smtp_host']);
         }
 
         // 未指定加密方式时按端口自动推断：465→ssl, 587→tls, 其他→none

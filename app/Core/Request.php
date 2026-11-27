@@ -100,18 +100,19 @@ class Request
         return $this->headers[$key] ?? $default;
     }
 
-    /** 客户端真实 IP：仅当直连方在 trusted_proxies 内时才采信转发头，否则一律用 REMOTE_ADDR */
+    /**
+     * 客户端真实 IP：仅当直连方在 trusted_proxies 内时才采信 X-Forwarded-For。
+     *
+     * 不再读 CF-Connecting-IP / X-Real-IP：这两个头没有「从右往左跳过可信代理」的
+     * 语义，默认部署里 PHP 与 nginx 同机、REMOTE_ADDR 恒为 127.0.0.1，任何客户端
+     * 发一个头就能改写来源 IP，绕过 IP 白名单、鉴权失败锁定与两级限流。
+     */
     public function ip(): string
     {
         $remote  = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
         $trusted = (array) Config::get('security.trusted_proxies', ['127.0.0.1', '::1']);
         if ($remote === '' || !self::ipInList($remote, $trusted)) {
             return $remote;
-        }
-
-        $cf = trim((string) ($this->header('cf-connecting-ip') ?? ''));
-        if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) {
-            return $cf;
         }
 
         $xff = (string) ($this->header('x-forwarded-for') ?? '');
@@ -128,11 +129,6 @@ class Request
                 }
                 return $ip;
             }
-        }
-
-        $real = trim((string) ($this->header('x-real-ip') ?? ''));
-        if ($real !== '' && filter_var($real, FILTER_VALIDATE_IP)) {
-            return $real;
         }
 
         return $remote;

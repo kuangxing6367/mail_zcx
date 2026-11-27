@@ -41,6 +41,12 @@ server {
 
     # ---- PHP 处理 ----
     location ~ \.php$ {
+        # 不存在的 .php 一律 404，防止 cgi.fix_pathinfo 把图片等文件交给 PHP 执行
+        try_files $uri =404;
+
+        # Web Cron 的令牌仍可走 URL（兼容老计划任务），但不要写进 access log
+        if ($uri = "/zc-cron.php") { access_log off; }
+
         # 宝塔用户：下面两行改成 include enable-php-83.conf; 即可
         # 若装的是 8.2 分支，把 83 换成 82，并保持与 supervisor 模板一致
         fastcgi_pass   unix:/tmp/php-cgi-83.sock;   # 或 127.0.0.1:9000

@@ -4,10 +4,15 @@
 ;   1. 复制到 /etc/supervisor/conf.d/zc-mail-worker.conf
 ;   2. 修改 command/directory 中的路径为你的部署目录
 ;   3. supervisorctl reread && supervisorctl update && supervisorctl start zc-mail-worker
+;
+; 与 smtpd 模板保持一致：command 里写 PHP 完整路径并指定 PHP_INI_SCAN_DIR。
+; 宝塔多版本环境下裸 php 会指向另一个缺扩展的二进制，worker 起不来，
+; 队列就永远停在 pending。
 ; =============================================================
 [program:zc-mail-worker]
-command=php /www/wwwroot/mail.example.com/cli/worker.php
+command=/www/server/php/83/bin/php /www/wwwroot/mail.example.com/cli/worker.php
 directory=/www/wwwroot/mail.example.com
+environment=PHP_INI_SCAN_DIR="/www/server/php/83/etc/php.d"
 autostart=true
 autorestart=true
 startsecs=3
@@ -18,3 +23,5 @@ numprocs=1
 process_name=%(program_name)s_%(process_num)02d
 stderr_logfile=/www/wwwroot/mail.example.com/storage/logs/worker.err.log
 stdout_logfile=/www/wwwroot/mail.example.com/storage/logs/worker.out.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5

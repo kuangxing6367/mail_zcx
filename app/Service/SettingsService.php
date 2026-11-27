@@ -51,11 +51,6 @@ class SettingsService
                 'weight'      => '按权重（sent_total / weight 最小优先）',
             ],
         ],
-        'mail.smtp_verify_tls' => [
-            'group' => '发信与队列', 'label' => '校验 SMTP 证书',
-            'type'  => 'bool', 'restart' => 'worker',
-            'hint'  => '只有自签名证书的内网 SMTP 才需要关闭；关闭后无法防中间人',
-        ],
         'mail.queue.max_attempts' => [
             'group' => '发信与队列', 'label' => '单封最多投递次数',
             'type'  => 'int', 'min' => 1, 'max' => 10, 'restart' => 'worker',
@@ -84,16 +79,6 @@ class SettingsService
                 'sync' => '同步投递（可能拖慢响应）',
                 'skip' => '直接丢弃回调',
             ],
-        ],
-        'webhook.verify_tls' => [
-            'group' => 'Webhook', 'label' => '校验回调方证书',
-            'type'  => 'bool',
-            'hint'  => '默认开启；对自签名的内部接收端才关闭',
-        ],
-        'webhook.allow_private_hosts' => [
-            'group' => 'Webhook', 'label' => '允许回调到内网地址',
-            'type'  => 'bool',
-            'hint'  => '开启后 127.0.0.1 / 10.x / 169.254.169.254 都能访问，等同于关掉 SSRF 防护，仅内网自建接收端才开',
         ],
 
         // ---------- 安全与入口 ----------
@@ -125,18 +110,6 @@ class SettingsService
             'type'  => 'string', 'pattern' => '/^[A-Za-z0-9\-\.\*:\/,\s]*$/',
             'hint'  => '逗号分隔；留空 = 不发 CORS 头（同源部署不需要填）',
         ],
-        'security.trusted_proxies' => [
-            'group' => '安全与入口', 'label' => '可信反代地址',
-            'type'  => 'string', 'list' => true, 'pattern' => '/^[A-Za-z0-9\-\.\*:,\s\[\]]*$/',
-            'hint'  => '只有 REMOTE_ADDR 命中此处才采信 X-Forwarded-For；套 CDN 时填回源 IP，逗号分隔',
-        ],
-
-        // ---------- 排错 ----------
-        'app.debug' => [
-            'group' => '排错', 'label' => '调试模式',
-            'type'  => 'bool',
-            'hint'  => '开启后接口错误会带回异常详情，仅排障时短暂开启',
-        ],
     ];
 
     /** 明确不开放网页修改的项，只在界面提示需要手工编辑 */
@@ -147,6 +120,11 @@ class SettingsService
         'security.require_api_key'=> '关闭后所有接口裸奔，只能手工改',
         'smtp_in.*'               => 'SMTP 入站是常驻进程，需改配置并重启才生效',
         'mail.attachment_roots'   => '涉及服务器绝对路径，需人工确认',
+        'mail.smtp_verify_tls'    => '关闭后 SMTP 连接无法防中间人，只能手工改 config.local.php',
+        'webhook.verify_tls'      => '关闭后回调证书不再校验，只能手工改 config.local.php',
+        'webhook.allow_private_hosts' => '开启等于关掉 SSRF 防护，只能手工改 config.local.php',
+        'security.trusted_proxies'=> '写宽后来源 IP 完全由请求头决定，只能手工改 config.local.php',
+        'app.debug'               => '开启会把异常详情回给调用方，只能手工改 config.local.php',
     ];
 
     /** 界面数据 */

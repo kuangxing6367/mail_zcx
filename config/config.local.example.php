@@ -52,7 +52,7 @@ return [
         // ---- 没有 SSH / CLI 的虚拟主机（梦奈主机这类面板）需要这两项 ----
         // 网页安装器口令（public/zc-install.php）。装完就删掉该文件。
         // 'setup_token'  => 'openssl rand -hex 16 生成',
-        // Web Cron 口令（public/zc-cron.php?token=...），给「访问 URL」型计划任务用
+        // Web Cron 口令：优先用 X-Cron-Token 请求头；?token= 仅作兼容兜底
         // 'cron_token'   => 'openssl rand -hex 16 生成',
     ],
     'mail' => [
@@ -70,7 +70,7 @@ return [
         // 想用异步队列（接口立即返回 202，后台投递 + 失败重试）：
         //   ① 把 enabled 改成 true
         //   ② 确保 worker 在跑：supervisor 常驻，或宝塔计划任务每分钟
-        //      `php cli/worker.php --once`，或配 URL 型任务访问 /zc-cron.php?token=xxx
+        //      `php cli/worker.php --once`，或用 -H "X-Cron-Token: xxx" 访问 /zc-cron.php
         // 也可以在控制台「系统设置 → 发信与队列」里直接切换（不用改这个文件）。
         'queue' => [
             'enabled'        => false,

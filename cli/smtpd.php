@@ -140,7 +140,13 @@ final class SmtpSession
                 break;
             }
 
-            $this->log('C: ' . rtrim($line, "\r\n"));
+            // AUTH PLAIN 的第二个参数就是 base64(user\0api_key)，verbose 日志里
+            // 等同于明文口令。只记机制名，后面的 LOGIN 交互行也不经过这里。
+            if (strtoupper((string) strtok(trim($line), ' ')) === 'AUTH') {
+                $this->log('C: AUTH [已隐藏]');
+            } else {
+                $this->log('C: ' . rtrim($line, "\r\n"));
+            }
 
             $cmd = strtoupper(strtok(trim($line), ' '));
             if ($cmd === false || $cmd === '') {

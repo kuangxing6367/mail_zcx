@@ -50,6 +50,9 @@ chmod 755 . 2>/dev/null || true
 find . -type d -exec chmod 755 {} \; 2>/dev/null || true
 find . -type f -exec chmod 644 {} \; 2>/dev/null || true
 chmod -R 775 storage 2>/dev/null || true
+# 上面两条会把 Crypto 特意设为 0600 的根密钥和含凭据的配置文件放开给同机所有用户。
+# 部署用户需与 PHP-FPM / worker 用户一致，否则收紧后服务读不到配置。
+chmod 600 storage/app_secret.local config/config.local.php config/config.overrides.php 2>/dev/null || true
 
 echo ""
 echo "==> 初始化完成"

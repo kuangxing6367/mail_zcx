@@ -124,7 +124,7 @@ if (!$doRun) {
     $items .= '<li>数据库连接配置：' . (((string) Config::get('db.database', '')) !== ''
         ? '<span class="ok">已填写</span>（库名不明文回显）'
         : '<span class="bad">db.database 为空</span>') . '</li>';
-    $items .= '<li>凭据文件 config.local.php：' . ($localCfg ? '<span class="ok">已存在 ✓</span>' : '<span class="warn">不存在（正在使用 config.php 里的默认值）</span>') . '</li>';
+    $items .= '<li>凭据文件 config.local.php：' . ($localCfg ? '<span class="ok">已存在 ✓</span>' : '<span class="bad">不存在（不再允许用出厂凭据安装，请先复制示例文件并填写）</span>') . '</li>';
     $items .= '<li>storage 目录可写：' . (is_writable(Config::basePath('storage')) ? '<span class="ok">可写 ✓</span>' : '<span class="bad">不可写，请给 storage 及子目录 755/写权限</span>') . '</li>';
 
     render('ZC Mail 安装', '<h1>ZC Mail Service · 网页安装</h1>'

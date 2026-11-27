@@ -27,7 +27,10 @@ class RequestContext
     /** 生成并记录本次请求 ID */
     public static function initRequestId(?string $provided = null): string
     {
-        $id = $provided ?: self::generate();
+        // X-Request-Id 会原样进入日志与响应，先做白名单，避免伪造日志分段或超长污染。
+        $id = ($provided !== null && preg_match('/^[A-Za-z0-9_-]{1,64}$/', $provided) === 1)
+            ? $provided
+            : self::generate();
         self::set('request_id', $id);
         return $id;
     }

@@ -38,6 +38,15 @@ class WebhookService
         return $this->db->fetch('SELECT * FROM `' . $this->db->table('webhooks') . '` WHERE id = ? LIMIT 1', [$id]) ?: null;
     }
 
+    /** 对外输出：签名密钥只回掩码，不回明文；内部投递仍用 list()/get() 的原始值 */
+    public function toApi(array $row): array
+    {
+        $row['secret'] = (string) ($row['secret'] ?? '') !== ''
+            ? Crypto::mask((string) $row['secret'])
+            : '';
+        return $row;
+    }
+
     public function create(array $data): int
     {
         $row = $this->normalize($data, true);
@@ -178,7 +187,12 @@ class WebhookService
             $headers[] = Config::get('webhook.sign_header', 'X-ZC-Signature') . ': ' . Crypto::sign($json, $secret);
         }
         foreach ((array) ($target['headers'] ?? []) as $k => $v) {
-            $headers[] = $k . ': ' . $v;
+            // 自定义头来自数据库配置；CR/LF 会把它变成两个头，甚至改变签名头。
+            $name = preg_replace('/[^A-Za-z0-9-]/', '', (string) $k) ?? '';
+            if ($name === '') {
+                continue;
+            }
+            $headers[] = $name . ': ' . str_replace(["\r", "\n"], '', (string) $v);
         }
 
         $deliveryId = $this->db->insert('webhook_deliveries', [
@@ -286,15 +300,27 @@ class WebhookService
         $payload = $req->all();
 
         // 防重放：签名只证明「内容没被改」，不证明「这是新请求」。
-        // 抓到一个合法请求后可以原样重放无数次，所以带时间戳时校验新鲜度；
-        // 老调用方不带 timestamp 的仍然放行（兼容），但日志里会留痕。
+        // 带 timestamp 的请求同时校验新鲜度与签名去重；不带 timestamp 的老调用方
+        // 仍按兼容路径放行，但可用 security.require_timestamp 收紧为直接拒绝。
         $window = (int) Config::get('security.timestamp_window', 300);
         $ts     = (int) ($payload['timestamp'] ?? 0);
-        if ($ts > 0 && $window > 0 && abs(time() - $ts) > $window) {
-            Logger::warning('入站事件时间戳超窗，拒绝', ['ts' => $ts, 'window' => $window, 'ip' => $req->ip()]);
-            throw new RuntimeException('入站事件时间戳超出容差（疑似重放）');
-        }
-        if ($ts <= 0) {
+        if ($ts > 0) {
+            if ($window > 0 && abs(time() - $ts) > $window) {
+                Logger::warning('入站事件时间戳超窗，拒绝', ['ts' => $ts, 'window' => $window, 'ip' => $req->ip()]);
+                throw new RuntimeException('入站事件时间戳超出容差（疑似重放）');
+            }
+            $dup = $this->db->fetch(
+                'SELECT id FROM `' . $this->db->table('inbound_events') . '` WHERE signature = ? LIMIT 1',
+                [$signature]
+            );
+            if ($dup) {
+                Logger::warning('入站事件签名重复，拒绝', ['id' => $dup['id'], 'ip' => $req->ip()]);
+                throw new RuntimeException('入站事件签名重复（疑似重放）');
+            }
+        } else {
+            if ((bool) Config::get('security.require_timestamp', false)) {
+                throw new RuntimeException('入站事件缺少 timestamp');
+            }
             Logger::info('入站事件未带 timestamp，无法做重放校验', ['ip' => $req->ip()]);
         }
 
@@ -506,7 +532,7 @@ class WebhookService
         }
     }
 
-    private static function isPublicIp(string $ip): bool
+    public static function isPublicIp(string $ip): bool
     {
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
             return false;
@@ -552,6 +578,10 @@ class WebhookService
         }
         if (isset($row['headers']) && is_array($row['headers'])) {
             $row['headers'] = json_encode($row['headers'], JSON_UNESCAPED_UNICODE);
+        }
+        // 列表/详情只回掩码：编辑时留空表示不修改，不能把掩码串写回数据库。
+        if (!$isCreate && array_key_exists('secret', $row) && trim((string) $row['secret']) === '') {
+            unset($row['secret']);
         }
         foreach (['status', 'retry'] as $f) {
             if (isset($row[$f])) {

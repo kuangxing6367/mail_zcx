@@ -19,7 +19,7 @@ class WebhookController extends BaseController
     public function index(Request $req, array $params): void
     {
         $svc = new WebhookService();
-        Response::ok($svc->list());
+        Response::ok(array_map([$svc, 'toApi'], $svc->list()));
     }
 
     public function show(Request $req, array $params): void
@@ -30,7 +30,7 @@ class WebhookController extends BaseController
             Response::notFound('Webhook 配置不存在');
             return;
         }
-        Response::ok($row);
+        Response::ok($svc->toApi($row));
     }
 
     public function store(Request $req, array $params): void

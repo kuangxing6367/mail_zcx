@@ -77,6 +77,16 @@ class InstallerService
      */
     public function run(): array
     {
+        // 出厂配置里不允许有可用凭据：Config::load() 会把 config.local.php 合并进来，
+        // 若用户没建这个文件就用 root/空密码建库，等于把最小权限原则丢掉。
+        if (!is_file(Config::basePath('config/config.local.php'))) {
+            throw new RuntimeException('缺少 config/config.local.php：请先复制 config.local.example.php 并填入数据库凭据，再执行安装');
+        }
+        $dbUser = (string) ($this->cfg['username'] ?? '');
+        if ($dbUser === '' || str_starts_with($dbUser, '__SET_IN_')) {
+            throw new RuntimeException('数据库凭据仍是出厂占位值，请先在 config/config.local.php 填入真实账号');
+        }
+
         $notes    = [];
         $warnings = [];
         $pdo      = $this->connect();
